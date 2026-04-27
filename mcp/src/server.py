@@ -110,7 +110,7 @@ def generate_embedding(text: str, dim: int) -> list[float]:
     if not text or not HAS_EMBEDDER:
         return [0.0] * dim
     try:
-        vec = _embedder.encode(text, convert_to_numpy=True)
+        vec = _embedder.encode(text, convert_to_numpy=True, normalize_embeddings=True)
         if vec is None:
             return [0.0] * dim
         vec = vec.tolist() if hasattr(vec, 'tolist') else list(vec)
@@ -119,6 +119,28 @@ def generate_embedding(text: str, dim: int) -> list[float]:
         return vec
     except Exception:
         return [0.0] * dim
+
+
+def normalize_text(text: str) -> str:
+    import unicodedata, re
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def chunk_text(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]:
+    words = text.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = min(start + chunk_size, len(words))
+        chunk = " ".join(words[start:end])
+        if chunk:
+            chunks.append(chunk)
+        if end == len(words):
+            break
+        start = end - overlap
+    return chunks
 
 
 def get_table_schema(table: str) -> dict[str, Any]:
@@ -217,17 +239,17 @@ def parse_id_from_result(result: str) -> Optional[int]:
 # ==================== File Parsers ====================
 
 def parse_txt(path: str) -> dict[str, Any]:
-    content = Path(path).read_text(encoding="utf-8", errors="replace")
+    content = normalize_text(Path(path).read_text(encoding="utf-8", errors="replace"))
     return {
-        "title": Path(path).stem,
+        "title": normalize_text(Path(path).stem),
         "content": content,
         "pages": [{"content": content, "page": 0}],
     }
 
 
 def parse_md(path: str) -> dict[str, Any]:
-    content = Path(path).read_text(encoding="utf-8", errors="replace")
-    title = Path(path).stem
+    content = normalize_text(Path(path).read_text(encoding="utf-8", errors="replace"))
+    title = normalize_text(Path(path).stem)
     return {
         "title": title,
         "content": content,
@@ -241,17 +263,17 @@ def parse_csv(path: str) -> dict[str, Any]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                rows.append({"content": json.dumps(row), "page": i + 1})
+                rows.append({"content": normalize_text(json.dumps(row)), "page": i + 1})
     except Exception:
-        content = Path(path).read_text(encoding="utf-8", errors="replace")
+        content = normalize_text(Path(path).read_text(encoding="utf-8", errors="replace"))
         return {
-            "title": Path(path).stem,
+            "title": normalize_text(Path(path).stem),
             "content": content,
             "pages": [{"content": content, "page": 0}],
         }
-    full_content = Path(path).read_text(encoding="utf-8", errors="replace")
+    full_content = normalize_text(Path(path).read_text(encoding="utf-8", errors="replace"))
     return {
-        "title": Path(path).stem,
+        "title": normalize_text(Path(path).stem),
         "content": full_content,
         "pages": rows if rows else [{"content": full_content, "page": 0}],
     }
@@ -270,12 +292,12 @@ def parse_pdf(path: str) -> dict[str, Any]:
     pages = []
     for i, page in enumerate(reader.pages):
         try:
-            text = page.extract_text()
+            text = normalize_text(page.extract_text())
         except Exception:
             text = ""
         if text.strip():
             pages.append({"content": text, "page": i + 1})
-    full_content = "\n\n".join(p["content"] for p in pages)
+    full_content = normalize_text("\n\n".join(p["content"] for p in pages))
     return {
         "title": title,
         "content": full_content,
@@ -295,10 +317,10 @@ def parse_docx(path: str) -> dict[str, Any]:
         pass
     paragraphs = []
     for i, para in enumerate(doc.paragraphs):
-        text = para.text.strip()
+        text = normalize_text(para.text.strip())
         if text:
             paragraphs.append({"content": text, "page": i + 1})
-    full_content = "\n\n".join(p["content"] for p in paragraphs)
+    full_content = normalize_text("\n\n".join(p["content"] for p in paragraphs))
     return {
         "title": title,
         "content": full_content,
@@ -319,8 +341,8 @@ def parse_xlsx(path: str) -> dict[str, Any]:
         for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
             row_data = {str(cell.column_letter): str(cell.value) if cell.value is not None else "" for cell in row}
             if any(v for v in row_data.values()):
-                rows.append({"content": json.dumps(row_data), "page": i})
-    full_content = "\n".join(r["content"] for r in rows)
+                rows.append({"content": normalize_text(json.dumps(row_data)), "page": i})
+    full_content = normalize_text("\n".join(r["content"] for r in rows))
     return {
         "title": title,
         "content": full_content,
@@ -329,12 +351,12 @@ def parse_xlsx(path: str) -> dict[str, Any]:
 
 
 def parse_json(path: str) -> dict[str, Any]:
-    content = Path(path).read_text(encoding="utf-8", errors="replace")
+    content = normalize_text(Path(path).read_text(encoding="utf-8", errors="replace"))
     try:
         data = json.loads(content)
     except Exception:
         return {
-            "title": Path(path).stem,
+            "title": normalize_text(Path(path).stem),
             "content": content,
             "pages": [{"content": content, "page": 0}],
         }
@@ -343,15 +365,15 @@ def parse_json(path: str) -> dict[str, Any]:
         for i, item in enumerate(data):
             if isinstance(item, dict):
                 text = item.get("text", json.dumps(item))
-                pages.append({"content": text, "page": i + 1})
+                pages.append({"content": normalize_text(text), "page": i + 1})
             else:
-                pages.append({"content": str(item), "page": i + 1})
+                pages.append({"content": normalize_text(str(item)), "page": i + 1})
     elif isinstance(data, dict):
         text = data.get("text", data.get("content", json.dumps(data)))
-        pages.append({"content": text, "page": 0})
-    full_content = "\n".join(p["content"] for p in pages)
+        pages.append({"content": normalize_text(text), "page": 0})
+    full_content = normalize_text("\n".join(p["content"] for p in pages))
     return {
-        "title": Path(path).stem,
+        "title": normalize_text(Path(path).stem),
         "content": full_content,
         "pages": pages if pages else [{"content": content, "page": 0}],
     }
@@ -369,10 +391,10 @@ def parse_jsonl(path: str) -> dict[str, Any]:
             text = item.get("text", item.get("content", json.dumps(item)))
         else:
             text = str(item)
-        pages.append({"content": text, "page": i})
-    full_content = "\n".join(p["content"] for p in pages)
+        pages.append({"content": normalize_text(text), "page": i})
+    full_content = normalize_text("\n".join(p["content"] for p in pages))
     return {
-        "title": Path(path).stem,
+        "title": normalize_text(Path(path).stem),
         "content": full_content,
         "pages": pages,
     }
@@ -653,7 +675,16 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         title = parsed.get("title", file_path.stem)
         content = parsed.get("content", "")
         pages = parsed.get("pages", [])
-        total_chunks = len(pages) if pages else 1
+
+        # Pre-calculate sub-chunks to know actual child count
+        actual_child_count = 0
+        for page_data in pages:
+            chunk_content = page_data.get("content", "")
+            sub_chunks = chunk_text(chunk_content)
+            if len(sub_chunks) <= 1 and chunk_content:
+                actual_child_count += 1
+            else:
+                actual_child_count += max(len(sub_chunks), 1) if chunk_content else 0
 
         try:
             parent_embedding = generate_embedding(content, vector_dim)
@@ -665,26 +696,35 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
                    f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
                    f"VALUES ({vec_str}, '{fname_esc}', '{content_esc}', "
-                   f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {total_chunks}, '{title_esc}')")
+                   f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {actual_child_count}, '{title_esc}')")
             result = db_client.execute(sql)
             parent_id = parse_id_from_result(result)
 
             if parent_id is None:
                 parent_id = -1
 
+            child_idx = 0
             for chunk_idx, page_data in enumerate(pages):
                 chunk_content = page_data.get("content", "")
                 page_num = page_data.get("page", 0)
-                chunk_emb = generate_embedding(chunk_content, vector_dim)
-                chunk_vec_str = f"[{', '.join(str(x) for x in chunk_emb)}]"
-                chunk_esc = chunk_content[:5000].replace(chr(10), ' ').replace("'", "''")
-                child_sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
-                             f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
-                             f"VALUES ({chunk_vec_str}, '{fname_esc}', '{chunk_esc}', "
-                             f"{page_num}, '{ext[1:]}', {parent_id}, '{fpath_esc}', {chunk_idx + 1}, {total_chunks}, '{title_esc}')")
-                db_client.execute(child_sql)
 
-            log_import(table, fpath, file_path.name, fsize, fhash, 1, total_chunks, "ok")
+                # Sub-chunk large content into smaller fragments
+                sub_chunks = chunk_text(chunk_content)
+                if len(sub_chunks) <= 1:
+                    sub_chunks = [chunk_content] if chunk_content else []
+
+                for sub_content in sub_chunks:
+                    child_idx += 1
+                    chunk_emb = generate_embedding(sub_content, vector_dim)
+                    chunk_vec_str = f"[{', '.join(str(x) for x in chunk_emb)}]"
+                    sub_esc = sub_content[:5000].replace(chr(10), ' ').replace("'", "''")
+                    child_sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
+                                 f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
+                                 f"VALUES ({chunk_vec_str}, '{fname_esc}', '{sub_esc}', "
+                                 f"{page_num}, '{ext[1:]}', {parent_id}, '{fpath_esc}', {child_idx}, {actual_child_count}, '{title_esc}')")
+                    db_client.execute(child_sql)
+
+            log_import(table, fpath, file_path.name, fsize, fhash, 1, actual_child_count, "ok")
             stats["imported"] += 1
             imported_files.append(file_path.name)
 

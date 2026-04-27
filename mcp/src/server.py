@@ -1083,7 +1083,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.4")
+server = Server("pardusdb-mcp", "0.4.6")
 
 
 @server.list_tools()

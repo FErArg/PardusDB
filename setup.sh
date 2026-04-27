@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.4.4"
+VERSION="0.4.6"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 INSTALL_DIR="$HOME/.local/bin"
@@ -219,7 +219,7 @@ CONFIG_EOF
 }
 
 install_mcp() {
-    echo "[5/8] Instalando servidor MCP (Python)..."
+    echo "[5/10] Instalando servidor MCP (Python)..."
 
     if [ ! -f "$SCRIPT_DIR/mcp/src/server.py" ]; then
         echo "  ADVERTENCIA: mcp/src/server.py no encontrado, saltando MCP server"
@@ -236,8 +236,39 @@ install_mcp() {
     echo "  MCP server instalado en: $MCP_DIR/server.py"
 }
 
+install_document_dependencies() {
+    echo "[6/10] Instalando librerias de parsing de documentos..."
+
+    echo -n "  Instalar librerias para importar PDF/DOCX/XLS? (Y/n): "
+    read -r respuesta
+    if [ "$respuesta" != "n" ] && [ "$respuesta" != "N" ]; then
+        for dep in pypdf python-docx openpyxl xlrd; do
+            echo "    Instalando $dep..."
+            pip3 install $dep --quiet 2>/dev/null || pip3 install $dep --quiet --break-system-packages 2>/dev/null || echo "    ADVERTENCIA: No se pudo instalar $dep"
+        done
+        echo "  Librerias de parsing instaladas."
+    else
+        echo "  Omitido. Los formatos no disponibles seran saltados durante la importacion."
+    fi
+}
+
+install_sentence_transformers() {
+    echo "[7/10] Instalando sentence-transformers (embeddings)..."
+
+    echo -n "  Instalar sentence-transformers para embeddings automaticos? (s/N): "
+    read -r respuesta
+    if [ "$respuesta" == "s" ] || [ "$respuesta" == "S" ]; then
+        echo "    Descargando modelo (all-MiniLM-L6-v2, ~80MB)..."
+        pip3 install sentence-transformers --quiet 2>/dev/null || pip3 install sentence-transformers --quiet --break-system-packages 2>/dev/null || echo "    ADVERTENCIA: No se pudo instalar sentence-transformers"
+        echo "  sentence-transformers instalado."
+    else
+        echo "  Omitido. La importacion usara vectores cero. Instalar luego con:"
+        echo "    pip install sentence-transformers"
+    fi
+}
+
 configure_opencode() {
-    echo "[6/8] Configurando OpenCode..."
+    echo "[8/10] Configurando OpenCode..."
 
     if [ ! -f "$MCP_DIR/server.py" ]; then
         echo "  MCP server no instalado, saltando configuracion OpenCode"
@@ -315,7 +346,7 @@ JSONEOF
 }
 
 install_python_sdk() {
-    echo "[7/8] Instalando SDK Python..."
+    echo "[9/10] Instalando SDK Python..."
 
     if [ ! -d "$SCRIPT_DIR/sdk/python" ]; then
         echo "  ADVERTENCIA: Directorio sdk/python/ no encontrado, saltando SDK Python"
@@ -334,7 +365,7 @@ install_python_sdk() {
 }
 
 create_data_dir() {
-    echo "[8/8] Creando directorio de datos..."
+    echo "[10/10] Creando directorio de datos..."
 
     mkdir -p "$DATA_DIR"
 
@@ -381,6 +412,8 @@ do_install() {
     create_helper
     create_config
     install_mcp
+    install_document_dependencies
+    install_sentence_transformers
     configure_opencode
     install_python_sdk
     create_data_dir

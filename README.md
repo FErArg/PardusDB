@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.5-blue.svg)](https://github.com/pardus-ai/pardusdb)
+[![Version](https://img.shields.io/badge/version-0.4.7-blue.svg)](https://github.com/pardus-ai/pardusdb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
@@ -31,6 +31,8 @@ While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no
 - **Full transactions** — BEGIN/COMMIT/ROLLBACK for atomic operations
 - **Optional GPU acceleration** — For large batch inserts and queries
 - **Python MCP server** (no Node.js required)
+- **Project initialization** — New `pardusdb_init_project` tool to create a new project with auto-detected embedding dimension and test vector verification
+- **Database health tests** — New `pardusdb_test_database` tool to verify insert/search/cleanup operations on an existing database
 - **Import documents from disk** — PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT with auto-embeddings and parent-child tracking
 - **Document parsing libraries** — PDF, DOCX, XLSX, XLS support via pypdf, python-docx, openpyxl, xlrd
 - **Database health checks** — Verify integrity, detect orphans, check dimensions
@@ -203,6 +205,8 @@ PardusDB includes an MCP server that allows AI agents (OpenCode, Claude Desktop,
 | `pardusdb_health_check` | Run integrity checks on tables and data |
 | `pardusdb_get_schema` | Show table schema and structure |
 | `pardusdb_import_status` | View or manage import history |
+| `pardusdb_init_project` | Initialize a new project with auto-detected dimension and test verification |
+| `pardusdb_test_database` | Test insert/search/cleanup operations on an existing database |
 
 ### OpenCode Configuration
 

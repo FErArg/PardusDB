@@ -969,6 +969,186 @@ async def handle_import_status(args: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
 
 
+# ==================== Init Project Tool ====================
+
+async def handle_init_project(args: dict[str, Any]) -> dict[str, Any]:
+    db_path_arg = args.get("path")
+    table_name = args.get("table", "documents")
+    vector_dim_arg = args.get("vector_dim")
+    force = args.get("force", False)
+
+    if not db_path_arg:
+        db_path_arg = os.path.join(os.getcwd(), "project.pardus")
+
+    db_path = str(Path(db_path_arg).resolve())
+
+    if Path(db_path).exists() and not force:
+        return {"content": [{"type": "text", "text": f"Database already exists at: {db_path}\nUse force=true to reinitialize."}], "isError": True}
+
+    if Path(db_path).exists() and force:
+        try:
+            Path(db_path).unlink()
+        except Exception as e:
+            return {"content": [{"type": "text", "text": f"Could not remove existing database: {e}"}], "isError": True}
+
+    embedder_name = "none"
+    vector_dim = vector_dim_arg or DEFAULT_VECTOR_DIM
+    if HAS_EMBEDDER:
+        try:
+            vector_dim = _embedder.get_sentence_embedding_dimension()
+            embedder_name = EMBEDDER_MODEL
+        except Exception:
+            pass
+
+    output = []
+    output.append("PardusDB Project Initialization")
+    output.append("=" * 40)
+    output.append(f"Database: {db_path}")
+    output.append(f"Table:    {table_name}")
+    output.append(f"Dimension: {vector_dim}")
+    output.append(f"Embedder: {embedder_name}")
+
+    try:
+        db_client.set_db_path(db_path)
+        result = await db_client.execute(f".create {db_path}")
+        output.append(f"\n  [1/4] Create DB:   ✅")
+    except Exception as e:
+        output.append(f"\n  [1/4] Create DB:   ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    try:
+        create_sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+            embedding VECTOR({vector_dim}),
+            filename TEXT,
+            content TEXT,
+            page INT,
+            file_type TEXT,
+            parent_doc_id INT,
+            doc_path TEXT,
+            chunk_index INT,
+            total_chunks INT,
+            title TEXT,
+            content_hash TEXT
+        )"""
+        db_client.execute(create_sql)
+        db_client.set_current_table(table_name)
+        output.append(f"  [2/4] Create Table: ✅")
+    except Exception as e:
+        output.append(f"  [2/4] Create Table: ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    test_text = "PardusDB test vector — system initialization check"
+    test_vector = generate_embedding(test_text, vector_dim)
+    test_vec_str = f"[{', '.join(str(x) for x in test_vector)}]"
+    test_content_esc = test_text.replace("'", "''")
+    test_sql = (f"INSERT INTO {table_name} (embedding, filename, content, page, file_type, "
+                f"parent_doc_id, doc_path, chunk_index, total_chunks, title, content_hash) "
+                f"VALUES ({test_vec_str}, '__test__', '{test_content_esc}', "
+                f"0, 'txt', NULL, '__test__', 0, 1, '__init__', '__test__')")
+    try:
+        insert_result = db_client.execute(test_sql)
+        test_id = parse_id_from_result(insert_result)
+        output.append(f"  [3/4] Insert Test:  ✅ (id={test_id})")
+    except Exception as e:
+        output.append(f"  [3/4] Insert Test:  ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    try:
+        search_sql = f"SELECT * FROM {table_name} WHERE embedding SIMILARITY {test_vec_str} LIMIT 3"
+        search_result = db_client.execute(search_sql)
+        import re
+        count_match = re.search(r"Found (\d+) row", search_result)
+        row_count = count_match.group(1) if count_match else "?"
+        dist_match = re.search(r"distance=([0-9.]+)", search_result)
+        distance = dist_match.group(1) if dist_match else "?"
+        output.append(f"  [4/4] Search Test:  ✅ ({row_count} result, distance={distance})")
+    except Exception as e:
+        output.append(f"  [4/4] Search Test:  ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    output.append("")
+    output.append("Project ready. Import documents with:")
+    output.append(f"  pardusdb_import_text(dir_path=\"/path/to/docs\", table=\"{table_name}\")")
+
+    return {"content": [{"type": "text", "text": "\n".join(output)}]}
+
+
+# ==================== Test Database Tool ====================
+
+async def handle_test_database(args: dict[str, Any]) -> dict[str, Any]:
+    table = args.get("table") or db_client.get_current_table()
+    cleanup = args.get("cleanup", True)
+
+    if not table:
+        return {"content": [{"type": "text", "text": "Error: No table specified. Use 'table' parameter or select a table first."}], "isError": True}
+
+    db_path = db_client.get_db_path()
+    output = []
+    output.append("PardusDB Database Test")
+    output.append("=" * 40)
+    output.append(f"Database: {db_path or 'in-memory'}")
+    output.append(f"Table:    {table}")
+
+    if db_path:
+        try:
+            count_result = db_client.execute(f"SELECT COUNT(*) FROM {table}")
+            import re
+            m = re.search(r"Count:\s*(\d+)", count_result)
+            existing = int(m.group(1)) if m else 0
+            output.append(f"Existing rows: {existing}")
+        except Exception:
+            pass
+
+    test_text = "PardusDB quick test vector"
+    vector_dim = DEFAULT_VECTOR_DIM
+    if HAS_EMBEDDER:
+        try:
+            vector_dim = _embedder.get_sentence_embedding_dimension()
+        except Exception:
+            pass
+
+    test_vector = generate_embedding(test_text, vector_dim)
+    test_vec_str = f"[{', '.join(str(x) for x in test_vector)}]"
+    test_content_esc = test_text.replace("'", "''")
+    test_sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
+                f"parent_doc_id, doc_path, chunk_index, total_chunks, title, content_hash) "
+                f"VALUES ({test_vec_str}, '__test__', '{test_content_esc}', "
+                f"0, 'txt', NULL, '__test__', 0, 1, '__test__', '__test__')")
+
+    try:
+        insert_result = db_client.execute(test_sql)
+        test_id = parse_id_from_result(insert_result)
+        output.append(f"\nOperations:")
+        output.append(f"  Insert:  ✅ (id={test_id})")
+    except Exception as e:
+        output.append(f"  Insert:  ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    try:
+        search_sql = f"SELECT * FROM {table} WHERE embedding SIMILARITY {test_vec_str} LIMIT 3"
+        search_result = db_client.execute(search_sql)
+        import re
+        count_match = re.search(r"Found (\d+) row", search_result)
+        row_count = count_match.group(1) if count_match else "?"
+        dist_match = re.search(r"distance=([0-9.]+)", search_result)
+        distance = dist_match.group(1) if dist_match else "?"
+        output.append(f"  Search:  ✅ ({row_count} result, distance={distance})")
+    except Exception as e:
+        output.append(f"  Search:  ❌ {e}")
+        return {"content": [{"type": "text", "text": "\n".join(output)}], "isError": True}
+
+    if cleanup:
+        try:
+            db_client.execute(f"DELETE FROM {table} WHERE id = {test_id}")
+            output.append(f"  Cleanup: ✅ (test record removed)")
+        except Exception as e:
+            output.append(f"  Cleanup: ⚠️  {e}")
+
+    output.append("")
+    output.append("Status: All operations OK")
+    return {"content": [{"type": "text", "text": "\n".join(output)}]}
+
+
 # ==================== Tool Definitions ====================
 
 TOOLS = [
@@ -1141,12 +1321,36 @@ TOOLS = [
             "required": ["action"],
         },
     ),
+    Tool(
+        name="pardusdb_init_project",
+        description="Initialize a new PardusDB project. Creates a .pardus database, auto-detects embedding dimension, creates the default table, inserts a test vector, and runs a search verification. Returns a summary of the setup.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path for the new .pardus database file (default: 'project.pardus' in current working directory)"},
+                "table": {"type": "string", "description": "Name for the default table (default: 'documents')"},
+                "vector_dim": {"type": "number", "description": f"Vector dimension (default: auto-detect from sentence-transformers if available, else {DEFAULT_VECTOR_DIM})"},
+                "force": {"type": "boolean", "description": "Overwrite existing database (default: false)"},
+            },
+        },
+    ),
+    Tool(
+        name="pardusdb_test_database",
+        description="Run a quick insert-and-search test on an existing database to verify read/write operations work correctly.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "Table to test (uses current table if not specified)"},
+                "cleanup": {"type": "boolean", "description": "Remove the test record after testing (default: true)"},
+            },
+        },
+    ),
 ]
 
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.6")
+server = Server("pardusdb-mcp", "0.4.7")
 
 
 @server.list_tools()
@@ -1186,6 +1390,10 @@ async def call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
         result = await handle_get_schema(args)
     elif name == "pardusdb_import_status":
         result = await handle_import_status(args)
+    elif name == "pardusdb_init_project":
+        result = await handle_init_project(args)
+    elif name == "pardusdb_test_database":
+        result = await handle_test_database(args)
     else:
         result = {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 

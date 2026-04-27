@@ -5,6 +5,13 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-04-28
+
+### Added
+
+- **Project initialization tool**: New `pardusdb_init_project` MCP tool that creates a new `.pardus` database, auto-detects embedding dimension via `sentence-transformers`, creates a default table with schema, inserts a test vector, and runs a search verification. Returns a health summary of the setup.
+- **Database test tool**: New `pardusdb_test_database` MCP tool that runs a quick insert-and-search test on an existing database to verify read/write operations work correctly, with optional cleanup of test records.
+
 ## [0.4.6] - 2026-04-28
 
 ### Fixed

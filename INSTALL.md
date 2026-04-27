@@ -34,7 +34,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.4.5` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.4.7` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 
@@ -185,6 +185,8 @@ PardusDB includes an MCP (Model Context Protocol) server that allows AI agents t
 | `pardusdb_health_check` | Run integrity checks on tables and data |
 | `pardusdb_get_schema` | Show table schema and structure |
 | `pardusdb_import_status` | View or manage import history |
+| `pardusdb_init_project` | Initialize a new project with auto-detected dimension and test verification |
+| `pardusdb_test_database` | Test insert/search/cleanup operations on an existing database |
 
 ### Configuring MCP in OpenCode
 

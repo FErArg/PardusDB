@@ -661,9 +661,10 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             title_esc = title.replace("'", "''")
             fpath_esc = fpath.replace("'", "''")
             fname_esc = file_path.name.replace("'", "''")
+            content_esc = content[:5000].replace("'", "''").replace("\n", " ").replace("\r", " ")
             sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
                    f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
-                   f"VALUES ({vec_str}, '{fname_esc}', '{content[:5000].replace(chr(10), ' ').replace(\"'\", \"''\")}', "
+                   f"VALUES ({vec_str}, '{fname_esc}', '{content_esc}', "
                    f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {total_chunks}, '{title_esc}')")
             result = db_client.execute(sql)
             parent_id = parse_id_from_result(result)
@@ -1082,7 +1083,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.3")
+server = Server("pardusdb-mcp", "0.4.4")
 
 
 @server.list_tools()

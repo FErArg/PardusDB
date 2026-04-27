@@ -1,6 +1,6 @@
 {
   "name": "pardusdb",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "TypeScript SDK for PardusDB - A fast, SQLite-like embedded vector database",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

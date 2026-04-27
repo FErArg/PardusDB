@@ -5,6 +5,12 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-04-28
+
+### Fixed
+
+- **SQL string escape in import**: Fixed `SyntaxError` when importing documents with single quotes or newlines in content. Replaced nested escaped quotes with a clean `content_esc` variable that properly escapes `'` → `''` and strips newlines.
+
 ## [0.4.3] - 2026-04-28
 
 ### Added

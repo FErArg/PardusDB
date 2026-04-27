@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.3.0"
+VERSION="0.4.0"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 INSTALL_DIR="$HOME/.local/bin"
@@ -104,16 +104,12 @@ check_prerequisites() {
         missing+=("Rust (cargo) - error critico tras instalacion")
     fi
 
-    if ! command -v node &> /dev/null; then
-        missing+=("Node.js (node) - instalar desde https://nodejs.org/")
-    fi
-
     if ! command -v python3 &> /dev/null; then
         missing+=("Python 3 (python3) - instalar desde https://python.org/")
     fi
 
-    if ! command -v npm &> /dev/null; then
-        missing+=("npm - se instala con Node.js")
+    if ! command -v pip3 &> /dev/null; then
+        missing+=("pip3 - se instala con Python")
     fi
 
     if [ ${#missing[@]} -ne 0 ]; then
@@ -123,12 +119,6 @@ check_prerequisites() {
         done
         echo ""
         echo "Por favor instale los prerrequisitos faltantes e intente de nuevo."
-        exit 1
-    fi
-
-    local node_version=$(node -v | sed 's/v//' | cut -d. -f1)
-    if [ "$node_version" -lt 18 ]; then
-        echo "ERROR: Node.js 18+ requerido. Version actual: $(node -v)"
         exit 1
     fi
 
@@ -229,52 +219,27 @@ CONFIG_EOF
 }
 
 install_mcp() {
-    echo "[5/7] Instalando servidor MCP..."
+    echo "[5/8] Instalando servidor MCP (Python)..."
 
-    if [ ! -d "$SCRIPT_DIR/mcp" ]; then
-        echo "  ADVERTENCIA: Directorio mcp/ no encontrado, saltando MCP server"
-        return
-    fi
-
-    cd "$SCRIPT_DIR/mcp"
-
-    if [ -d "node_modules" ]; then
-        rm -rf node_modules
-    fi
-
-    npm install --silent 2>/dev/null
-
-    if [ ! -f "dist/index.js" ]; then
-        npm run build 2>/dev/null
-    fi
-
-    if [ ! -f "dist/index.js" ]; then
-        echo "  ADVERTENCIA: MCP server no pudo ser construido"
-        cd "$SCRIPT_DIR"
+    if [ ! -f "$SCRIPT_DIR/mcp/src/server.py" ]; then
+        echo "  ADVERTENCIA: mcp/src/server.py no encontrado, saltando MCP server"
         return
     fi
 
     mkdir -p "$MCP_DIR"
 
-    if [ -d "$MCP_DIR/dist" ]; then
-        rm -rf "$MCP_DIR/dist"
-    fi
+    cp "$SCRIPT_DIR/mcp/src/server.py" "$MCP_DIR/"
 
-    cp -r dist "$MCP_DIR/"
-    cp package.json "$MCP_DIR/"
+    echo "  Instalando paquete MCP de Python..."
+    pip3 install mcp --quiet 2>/dev/null || echo "  ADVERTENCIA: No se pudo instalar el paquete mcp"
 
-    if [ -d "node_modules" ]; then
-        cp -r node_modules "$MCP_DIR/"
-    fi
-
-    cd "$SCRIPT_DIR"
-    echo "  MCP server instalado en: $MCP_DIR/"
+    echo "  MCP server instalado en: $MCP_DIR/server.py"
 }
 
 configure_opencode() {
     echo "[6/8] Configurando OpenCode..."
 
-    if [ ! -f "$MCP_DIR/dist/index.js" ]; then
+    if [ ! -f "$MCP_DIR/server.py" ]; then
         echo "  MCP server no instalado, saltando configuracion OpenCode"
         return
     fi
@@ -300,7 +265,7 @@ configure_opencode() {
         echo "  Skill copiado: $OPCODE_SKILLS_DIR/pardusdb.md"
     fi
 
-    local MCP_PATH="/home/$REAL_USER/.pardus/mcp/dist/index.js"
+    local MCP_PATH="/home/$REAL_USER/.pardus/mcp/server.py"
 
     if [ -f "$OPCODE_CONFIG" ]; then
         if python3 -c "
@@ -322,7 +287,7 @@ if 'mcp' not in cfg:
     cfg['mcp'] = {}
 cfg['mcp']['pardusdb'] = {
     'type': 'local',
-    'command': ['node', '$MCP_PATH'],
+    'command': ['python3', '$MCP_PATH'],
     'enabled': True
 }
 with open('$OPCODE_CONFIG', 'w') as f:
@@ -337,7 +302,7 @@ with open('$OPCODE_CONFIG', 'w') as f:
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "$MCP_PATH"],
+      "command": ["python3", "$MCP_PATH"],
       "enabled": true
     }
   }

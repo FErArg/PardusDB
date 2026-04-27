@@ -5,9 +5,7 @@ Complete installation and configuration guide for PardusDB.
 ## Requirements
 
 - **Rust** (for building from source) — install from https://rustup.rs/
-- **Node.js 18+** (for MCP server and TypeScript SDK) — install from https://nodejs.org/
-- **Python 3.10+** (for Python SDK) — install from https://python.org/
-- **npm** (comes with Node.js)
+- **Python 3.10+** (for Python SDK and MCP server) — install from https://python.org/
 
 ## Quick Install
 
@@ -36,7 +34,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.3.0` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.4.0` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 
@@ -194,7 +192,7 @@ Add this to your OpenCode configuration file (`~/.config/opencode/opencode.jsonc
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "/home/${USER}/.pardus/mcp/dist/index.js"],
+      "command": ["python3", "/home/${USER}/.pardus/mcp/server.py"],
       "enabled": true
     }
   }
@@ -217,8 +215,8 @@ Add to `~/.claude.json`:
 {
   "mcpServers": {
     "pardusdb": {
-      "command": "node",
-      "args": ["/home/${USER}/.pardus/mcp/dist/index.js"]
+      "command": "python3",
+      "args": ["/home/${USER}/.pardus/mcp/server.py"]
     }
   }
 }

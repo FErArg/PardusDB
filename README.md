@@ -2,9 +2,10 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/pardus-ai/pardusdb)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/pardus-ai/pardusdb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
 
 PardusDB is designed for developers building local AI applications — RAG pipelines, semantic search, recommendation systems, or any project that needs lightweight, persistent vector storage without external dependencies.
 
@@ -29,7 +30,7 @@ While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no
 - **Thread-safe** — Safe concurrent reads in multi-threaded applications
 - **Full transactions** — BEGIN/COMMIT/ROLLBACK for atomic operations
 - **Optional GPU acceleration** — For large batch inserts and queries
-- **Zero external dependencies** — Pure Rust, MIT licensed
+- **Python MCP server** (no Node.js required)
 
 ## Installation
 
@@ -206,7 +207,7 @@ Add to your `opencode.jsonc`:
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "/home/${USER}/.pardus/mcp/dist/index.js"],
+      "command": ["python3", "/home/${USER}/.pardus/mcp/server.py"],
       "enabled": true
     }
   }

@@ -5,6 +5,22 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-28
+
+### Changed
+
+- **MCP server migrated from TypeScript/Node.js to Python**: The MCP server is now implemented in Python (`mcp/src/server.py`) instead of TypeScript/Node.js. This eliminates Node.js as a prerequisite — only Python 3.10+ is required for the MCP server.
+- **Simplified installation**: Installers no longer use `npm` — the MCP server is a single Python file that runs directly.
+
+### Added
+
+- **Python MCP dependency**: Optional `mcp` package added to Python SDK for running the MCP server: `pip install pardusdb[mcp]`
+
+### Removed
+
+- **Node.js dependency**: Node.js 18+ is no longer required for basic PardusDB installation (only needed for TypeScript SDK)
+- **npm**: No longer used during installation
+
 ## [0.3.0] - 2026-04-28
 
 ### Added

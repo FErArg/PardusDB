@@ -5,7 +5,7 @@ Guide for AI agents working with the PardusDB codebase.
 ## Project Overview
 
 PardusDB is a fast, SQLite-like embedded vector database written in Rust. It provides:
-- Single-file storage (`.pardus` files) in `~/.local/share/pardus/`
+- Single-file storage (`.pardus` files) in `~/.pardus/`
 - SQL-like query syntax
 - HNSW-based vector similarity search
 - MCP server for AI agent integration

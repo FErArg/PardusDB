@@ -5,6 +5,17 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-27
+
+### Changed
+
+- **Data directory**: `~/.local/share/pardus/` → `~/.pardus/` (XDG-compliant, simpler path)
+- **Config directory**: New `~/.config/pardus/` for configuration files
+- **Platform detection**: `setup.sh` now detects Linux vs macOS
+- **Shell detection**: `setup.sh` auto-detects bash/zsh/fish for PATH instructions
+- **Auto-create database**: Default database `~/.pardus/data.pardus` is now created automatically after installation completes
+- **Config file**: Installer creates `~/.config/pardus/config.toml` with default settings
+
 ## [0.2.0] - 2026-04-27
 
 ### Added

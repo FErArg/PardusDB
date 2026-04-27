@@ -3,12 +3,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.2.0"
+VERSION="0.2.1"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 INSTALL_DIR="$HOME/.local/bin"
-DATA_DIR="$HOME/.local/share/pardus"
-MCP_DIR="$DATA_DIR/mcp"
+PARDUS_HOME="$HOME/.pardus"
+CONFIG_DIR="$HOME/.config/pardus"
+DATA_DIR="$PARDUS_HOME"
+MCP_DIR="$PARDUS_HOME/mcp"
 
 show_help() {
     cat << EOF
@@ -22,27 +24,48 @@ OPCIONES:
     --uninstall   Desinstalar PardusDB completamente
     --help        Mostrar esta ayuda
 
-INSTALACIÓN:
+INSTALACION:
     Instala el binario pardusdb, el helper 'pardus',
     el servidor MCP para agentes AI, y el SDK Python.
 
-    Rutas de instalación:
+    Rutas de instalacion:
       - Binario:     ~/.local/bin/pardusdb
       - Helper:      ~/.local/bin/pardus
-      - Datos BD:   ~/.local/share/pardus/
-      - MCP Server:  ~/.local/share/pardus/mcp/
+      - Datos BD:    ~/.pardus/
+      - MCP Server:  ~/.pardus/mcp/
 
-DESINSTALACIÓN:
+DESINSTALACION:
     Elimina todos los archivos instalados incluyendo
-    las bases de datos almacenadas en ~/.local/share/pardus/
+    las bases de datos almacenadas en ~/.pardus/
 
 EOF
+}
+
+detect_platform() {
+    case "$(uname -s)" in
+        Linux*)  PLATFORM="linux" ;;
+        Darwin*) PLATFORM="macos" ;;
+        *)      PLATFORM="unknown" ;;
+    esac
+}
+
+detect_shell() {
+    case "$(basename "$SHELL")" in
+        bash) SHELL_RC="$HOME/.bashrc" ;;
+        zsh)  SHELL_RC="$HOME/.zshrc" ;;
+        fish) SHELL_RC="$HOME/.config/fish/config.fish" ;;
+        *)    SHELL_RC="" ;;
+    esac
 }
 
 check_prerequisites() {
     echo "==================================="
     echo "   PardusDB v${VERSION} Installer"
     echo "==================================="
+    echo ""
+
+    detect_platform
+    echo "  Plataforma detectada: $PLATFORM"
     echo ""
 
     local missing=()
@@ -75,11 +98,10 @@ check_prerequisites() {
 
     local node_version=$(node -v | sed 's/v//' | cut -d. -f1)
     if [ "$node_version" -lt 18 ]; then
-        echo "ERROR: Node.js 18+ requerido. Versión actual: $(node -v)"
+        echo "ERROR: Node.js 18+ requerido. Version actual: $(node -v)"
         exit 1
     fi
 
-    local python_version=$(python3 --version | sed 's/Python //' | cut -d. -f1-2)
     echo "Prerrequisitos verificados."
     echo ""
 }
@@ -89,7 +111,7 @@ build_binary() {
     cargo build --release 2>/dev/null
 
     if [ ! -f "target/release/$BINARY_NAME" ]; then
-        echo "Error: La compilación del binario falló."
+        echo "Error: La compilacion del binario falló."
         echo "Verifique que Rust esté correctamente instalado e intente de nuevo."
         exit 1
     fi
@@ -112,9 +134,14 @@ install_binary() {
         echo "Binario instalado en: $INSTALL_DIR/$BINARY_NAME (ya en PATH)"
     else
         echo "Binario instalado en: $INSTALL_DIR/$BINARY_NAME"
-        echo "AÑADE '$INSTALL_DIR' A TU PATH si no está ya:"
-        echo "  echo 'export PATH=\"\$PATH:$INSTALL_DIR\"' >> ~/.bashrc"
-        echo "  source ~/.bashrc"
+        echo "  ANADE '$INSTALL_DIR' A TU PATH si no está ya:"
+        detect_shell
+        if [ -n "$SHELL_RC" ]; then
+            echo "  echo 'export PATH=\"\$PATH:$INSTALL_DIR\"' >> $SHELL_RC"
+            echo "  source $SHELL_RC"
+        else
+            echo "  echo 'export PATH=\"\$PATH:$INSTALL_DIR\"' >> ~/.bashrc"
+        fi
     fi
 }
 
@@ -123,7 +150,7 @@ create_helper() {
 
     cat > "$INSTALL_DIR/$HELPER_NAME" << 'HELPER_SCRIPT'
 #!/bin/bash
-DB_DIR="$HOME/.local/share/pardus"
+DB_DIR="$HOME/.pardus"
 DEFAULT_DB="$DB_DIR/data.pardus"
 
 mkdir -p "$DB_DIR"
@@ -144,8 +171,26 @@ HELPER_SCRIPT
     echo "Helper instalado en: $INSTALL_DIR/$HELPER_NAME"
 }
 
+create_config() {
+    echo "[4/7] Creando archivo de configuracion..."
+
+    mkdir -p "$CONFIG_DIR"
+
+    cat > "$CONFIG_DIR/config.toml" << 'CONFIG_EOF'
+# PardusDB Configuration File
+
+[database]
+default_path = "~/.pardus/data.pardus"
+
+[logging]
+level = "info"
+CONFIG_EOF
+
+    echo "  Configuracion en: $CONFIG_DIR/config.toml"
+}
+
 install_mcp() {
-    echo "[4/7] Instalando servidor MCP..."
+    echo "[5/7] Instalando servidor MCP..."
 
     if [ ! -d "$SCRIPT_DIR/mcp" ]; then
         echo "  ADVERTENCIA: Directorio mcp/ no encontrado, saltando MCP server"
@@ -185,11 +230,10 @@ install_mcp() {
 
     cd "$SCRIPT_DIR"
     echo "  MCP server instalado en: $MCP_DIR/"
-    echo "  Para usar con OpenCode, ver INSTALL.md"
 }
 
 install_python_sdk() {
-    echo "[5/7] Instalando SDK Python..."
+    echo "[6/7] Instalando SDK Python..."
 
     if [ ! -d "$SCRIPT_DIR/sdk/python" ]; then
         echo "  ADVERTENCIA: Directorio sdk/python/ no encontrado, saltando SDK Python"
@@ -208,58 +252,38 @@ install_python_sdk() {
 }
 
 create_data_dir() {
-    echo "[6/7] Creando directorio de datos..."
+    echo "[7/7] Creando directorio de datos..."
 
     mkdir -p "$DATA_DIR"
 
     echo "  Directorio de datos: $DATA_DIR/"
     echo "  Base de datos por defecto: $DATA_DIR/data.pardus"
-}
 
-install_typescript_sdk() {
-    echo "[7/7] Instalando SDK TypeScript..."
-
-    if [ ! -d "$SCRIPT_DIR/sdk/typescript/pardusdb" ]; then
-        echo "  ADVERTENCIA: Directorio sdk/typescript/pardusdb/ no encontrado"
-        return
+    if [ ! -f "$DATA_DIR/data.pardus" ]; then
+        echo "  Creando base de datos por defecto..."
+        echo ".create $DATA_DIR/data.pardus" | "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 || true
+        if [ -f "$DATA_DIR/data.pardus" ]; then
+            echo "  Base de datos creada exitosamente."
+        fi
     fi
-
-    cd "$SCRIPT_DIR/sdk/typescript/pardusdb"
-
-    if [ -d "node_modules" ]; then
-        rm -rf node_modules
-    fi
-
-    npm install --silent 2>/dev/null
-
-    if [ ! -f "dist/index.js" ]; then
-        npm run build 2>/dev/null
-    fi
-
-    if [ -f "dist/index.js" ]; then
-        echo "  SDK TypeScript instalado correctamente"
-    else
-        echo "  ADVERTENCIA: SDK TypeScript no pudo ser construido"
-    fi
-
-    cd "$SCRIPT_DIR"
 }
 
 verify_installation() {
     echo ""
     echo "==================================="
-    echo "   Instalación Completada!"
+    echo "   Instalacion Completada!"
     echo "==================================="
     echo ""
     echo "Archivos instalados:"
     echo "  - $INSTALL_DIR/pardusdb    (binario principal)"
     echo "  - $INSTALL_DIR/pardus      (helper, crea BD por defecto)"
     echo "  - $MCP_DIR/              (servidor MCP)"
+    echo "  - $CONFIG_DIR/config.toml (configuracion)"
     echo ""
-    echo "Uso rápido:"
+    echo "Uso rapido:"
     echo "  pardus                    # Abre la BD por defecto"
     echo "  pardusdb                  # Binario directo (in-memory)"
-    echo "  pardusdb mi.db            # Abre archivo específico"
+    echo "  pardusdb mi.db            # Abre archivo especifico"
     echo ""
     echo "Para usar el MCP server con OpenCode, ver INSTALL.md"
     echo ""
@@ -270,16 +294,16 @@ do_install() {
     build_binary
     install_binary
     create_helper
+    create_config
     install_mcp
     install_python_sdk
     create_data_dir
-    install_typescript_sdk
     verify_installation
 }
 
 do_uninstall() {
     echo "==================================="
-    echo "   PardusDB v${VERSION} - Desinstalación"
+    echo "   PardusDB v${VERSION} - Desinstalacion"
     echo "==================================="
     echo ""
 
@@ -291,23 +315,29 @@ do_uninstall() {
         removed=1
     fi
 
-    if [ -f "$INSTALL_DIR/pardus" ]; then
-        rm -f "$INSTALL_DIR/pardus"
-        echo "  Eliminado: $INSTALL_DIR/pardus"
+    if [ -f "$INSTALL_DIR/$HELPER_NAME" ]; then
+        rm -f "$INSTALL_DIR/$HELPER_NAME"
+        echo "  Eliminado: $INSTALL_DIR/$HELPER_NAME"
         removed=1
     fi
 
-    if [ -d "$DATA_DIR" ]; then
-        rm -rf "$DATA_DIR"
-        echo "  Eliminado: $DATA_DIR/ (bases de datos)"
+    if [ -d "$PARDUS_HOME" ]; then
+        rm -rf "$PARDUS_HOME"
+        echo "  Eliminado: $PARDUS_HOME/ (bases de datos)"
+        removed=1
+    fi
+
+    if [ -d "$CONFIG_DIR" ]; then
+        rm -rf "$CONFIG_DIR"
+        echo "  Eliminado: $CONFIG_DIR/"
         removed=1
     fi
 
     if [ $removed -eq 0 ]; then
-        echo "No se encontró ninguna instalación de PardusDB."
+        echo "No se encontro ninguna instalacion de PardusDB."
     else
         echo ""
-        echo "Desinstalación completada."
+        echo "Desinstalacion completada."
     fi
 }
 
@@ -322,7 +352,7 @@ case "${1:-}" in
         show_help
         ;;
     *)
-        echo "Opción desconocida: $1"
+        echo "Opcion desconocida: $1"
         echo "Usa --help para ver las opciones disponibles."
         exit 1
         ;;

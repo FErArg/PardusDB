@@ -1,6 +1,6 @@
 {
   "name": "@pardusai/pardusdb-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for PardusDB - A fast, SQLite-like embedded vector database",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -20,10 +20,38 @@ cd pardusdb
 This installs:
 - Binary `pardusdb` → `~/.local/bin/pardusdb`
 - Helper script `pardus` → `~/.local/bin/pardus`
-- Default database directory → `~/.local/share/pardus/`
-- MCP server → `~/.local/share/pardus/mcp/`
+- Data directory → `~/.pardus/`
+- MCP server → `~/.pardus/mcp/`
+- Config file → `~/.config/pardus/config.toml`
 - Python SDK
 - TypeScript SDK
+
+The installer automatically creates the default database at `~/.pardus/data.pardus` after building.
+
+---
+
+## Cross-Platform Compatibility
+
+PardusDB supports Linux and macOS. The installer automatically detects your platform.
+
+### Linux
+
+The installer uses XDG Base Directory Specification:
+- Data: `~/.pardus/`
+- Config: `~/.config/pardus/`
+
+### macOS
+
+Same structure as Linux:
+- Data: `~/.pardus/`
+- Config: `~/.config/pardus/`
+
+On macOS, ensure `~/.local/bin` is in your PATH (zsh is default on recent macOS versions):
+
+```bash
+echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.zshrc
+source ~/.zshrc
+```
 
 ---
 
@@ -63,7 +91,7 @@ pardusdb --version
 The `pardus` helper automatically manages the default database:
 
 ```bash
-pardus                    # Opens ~/.local/share/pardus/data.pardus (creates if missing)
+pardus                    # Opens ~/.pardus/data.pardus (creates if missing)
 pardus mi.db              # Opens specific file
 ```
 
@@ -71,7 +99,7 @@ pardus mi.db              # Opens specific file
 
 ```bash
 pardusdb                          # In-memory session (no persistence)
-pardusdb ~/.local/share/pardus/mi.db   # Open specific file
+pardusdb ~/.pardus/mi.db          # Open specific file
 ```
 
 ### REPL Commands
@@ -111,6 +139,22 @@ DELETE FROM docs WHERE id = 1;
 
 ---
 
+## Configuration
+
+PardusDB uses a configuration file at `~/.config/pardus/config.toml`:
+
+```toml
+[database]
+default_path = "~/.pardus/data.pardus"
+
+[logging]
+level = "info"
+```
+
+This file is created automatically by the installer.
+
+---
+
 ## MCP Server for AI Agents
 
 PardusDB includes an MCP (Model Context Protocol) server that allows AI agents to interact with the database.
@@ -140,7 +184,7 @@ Add this to your OpenCode configuration file (`~/.config/opencode/opencode.jsonc
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "/home/YOUR_USER/.local/share/pardus/mcp/dist/index.js"],
+      "command": ["node", "/home/YOUR_USER/.pardus/mcp/dist/index.js"],
       "enabled": true
     }
   }
@@ -158,7 +202,7 @@ Add to `~/.claude.json`:
   "mcpServers": {
     "pardusdb": {
       "command": "node",
-      "args": ["/home/YOUR_USER/.local/share/pardus/mcp/dist/index.js"]
+      "args": ["/home/YOUR_USER/.pardus/mcp/dist/index.js"]
     }
   }
 }
@@ -182,19 +226,19 @@ PardusDB stores all data in a single `.pardus` file. To backup:
 
 ```bash
 # Simple copy (while database is not in use)
-cp ~/.local/share/pardus/data.pardus ~/.local/share/pardus/data-backup-$(date +%Y%m%d).pardus
+cp ~/.pardus/data.pardus ~/.pardus/data-backup-$(date +%Y%m%d).pardus
 
 # Or with the REPL
 pardus
 > .save
 > quit
-cp ~/.local/share/pardus/data.pardus /path/to/backup/
+cp ~/.pardus/data.pardus /path/to/backup/
 ```
 
 ### Restore
 
 ```bash
-cp /path/to/backup/data.pardus ~/.local/share/pardus/data.pardus
+cp /path/to/backup/data.pardus ~/.pardus/data.pardus
 pardus
 ```
 
@@ -210,7 +254,8 @@ cd /path/to/pardusdb
 This removes:
 - `~/.local/bin/pardusdb`
 - `~/.local/bin/pardus`
-- `~/.local/share/pardus/` (including all database files)
+- `~/.pardus/` (including all database files)
+- `~/.config/pardus/` (configuration)
 - Python SDK (`pip uninstall pardusdb`)
 
 ---
@@ -268,7 +313,7 @@ export PATH="$PATH:$HOME/.local/bin"
 
 When using the MCP server, make sure you open a database first:
 ```bash
-pardusdb_create_database with path="~/.local/share/pardus/mydb.pardus"
+pardusdb_create_database with path="~/.pardus/mydb.pardus"
 ```
 
 ### "Node version too old"
@@ -303,8 +348,9 @@ pardusdb --version
 |-----------|------|
 | Binary | `~/.local/bin/pardusdb` |
 | Helper script | `~/.local/bin/pardus` |
-| Data directory | `~/.local/share/pardus/` |
-| Default DB | `~/.local/share/pardus/data.pardus` |
-| MCP server | `~/.local/share/pardus/mcp/` |
+| Data directory | `~/.pardus/` |
+| Default DB | `~/.pardus/data.pardus` |
+| MCP server | `~/.pardus/mcp/` |
+| Config file | `~/.config/pardus/config.toml` |
 | Python SDK | (installed via pip) |
 | TypeScript SDK | `sdk/typescript/pardusdb/` |

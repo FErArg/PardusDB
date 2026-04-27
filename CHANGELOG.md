@@ -5,6 +5,22 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-28
+
+### Added
+
+- **Document import tool**: New MCP tool `pardusdb_import_text` scans a directory and imports documents (PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT) with automatic embeddings via `sentence-transformers` (all-MiniLM-L6-v2). Falls back to zero vectors if the library is not installed.
+- **Parent-child tracking**: Multi-page/file documents create one parent entry plus individual child fragments linked via `parent_doc_id`, with `chunk_index`, `total_chunks`, `page`, and `title`.
+- **Deduplication**: Import skips files already imported (detected via SHA256 hash and `__import_log__` table).
+- **Import history**: Internal `__import_log__` table tracks all import operations with file hash, size, timestamp, and status. View or reset with `pardusdb_import_status`.
+- **Health check tool**: `pardusdb_health_check` verifies table integrity, orphan detection, schema validation, dimension consistency, and duplicate tracking.
+- **Schema introspection**: `pardusdb_get_schema` shows table columns, types, and statistics.
+- **Auto-create table**: The import tool creates the target table automatically if it doesn't exist.
+- **File size limit**: Configurable `max_file_size_mb` (default 50) prevents oversized file imports.
+- **Progress reporting**: Import progress printed to stderr every 5 files during large imports.
+- **Granular error handling**: Individual file errors don't abort the entire import batch.
+- **Multi-format parsing**: Built-in parsers for TXT, MD, CSV, JSON, JSONL, plus optional `pypdf` (PDF), `python-docx` (DOCX), and `openpyxl` (XLSX).
+
 ## [0.4.1] - 2026-04-28
 
 ### Fixed

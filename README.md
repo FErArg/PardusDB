@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/pardus-ai/pardusdb)
+[![Version](https://img.shields.io/badge/version-0.4.3-blue.svg)](https://github.com/pardus-ai/pardusdb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
@@ -31,6 +31,8 @@ While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no
 - **Full transactions** — BEGIN/COMMIT/ROLLBACK for atomic operations
 - **Optional GPU acceleration** — For large batch inserts and queries
 - **Python MCP server** (no Node.js required)
+- **Import documents from disk** — PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT with auto-embeddings and parent-child tracking
+- **Database health checks** — Verify integrity, detect orphans, check dimensions
 
 ## Installation
 
@@ -196,6 +198,10 @@ PardusDB includes an MCP server that allows AI agents (OpenCode, Claude Desktop,
 | `pardusdb_list_tables` | List all tables |
 | `pardusdb_use_table` | Set active table |
 | `pardusdb_status` | Show connection status |
+| `pardusdb_import_text` | Import documents from a directory (PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT) with auto-embeddings |
+| `pardusdb_health_check` | Run integrity checks on tables and data |
+| `pardusdb_get_schema` | Show table schema and structure |
+| `pardusdb_import_status` | View or manage import history |
 
 ### OpenCode Configuration
 

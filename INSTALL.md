@@ -34,7 +34,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.4.0` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.4.3` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 
@@ -181,6 +181,10 @@ PardusDB includes an MCP (Model Context Protocol) server that allows AI agents t
 | `pardusdb_list_tables` | List all tables |
 | `pardusdb_use_table` | Set active table |
 | `pardusdb_status` | Show connection status |
+| `pardusdb_import_text` | Import documents from a directory (PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT) with auto-embeddings |
+| `pardusdb_health_check` | Run integrity checks on tables and data |
+| `pardusdb_get_schema` | Show table schema and structure |
+| `pardusdb_import_status` | View or manage import history |
 
 ### Configuring MCP in OpenCode
 
@@ -231,6 +235,35 @@ Create a table called articles with 384-dimensional embeddings and a title text 
 ```
 
 The agent will use `pardusdb_create_table` automatically.
+
+### Document Import with `pardusdb_import_text`
+
+Imports files from a directory and stores them as vector-searchable documents with automatic embeddings.
+Multi-page files (PDF) and multi-paragraph files (DOCX) create one parent document plus one child fragment per page/paragraph.
+Tabular files (CSV, XLSX) create one parent plus one child per row.
+
+**Supported formats:** PDF, CSV, DOCX, XLSX, JSON, JSONL, MD, TXT
+
+**Parent-child structure:** Each imported file creates a parent record (`page=0`, `parent_doc_id=NULL`) plus one child record per page/paragraph/row, linked via `parent_doc_id`. Additional fields track the relationship: `chunk_index`, `total_chunks`, `filename`, `title`, and `doc_path`.
+
+**Optional dependencies for specific formats:**
+
+```bash
+pip install sentence-transformers  # automatic embeddings (recommended, all-MiniLM-L6-v2, 384-dim)
+pip install pypdf                  # PDF support
+pip install python-docx            # DOCX support
+pip install openpyxl               # XLSX support
+```
+
+If `sentence-transformers` is not installed, vectors are stored as zeros. If a format library is missing, files of that type are skipped with a warning.
+
+**Usage examples:**
+
+```
+Import all documents from /home/user/project/docs into a table called articles.
+Import only PDF and TXT files from /home/user/docs, table name: documents.
+Import from /data, table: knowledge_base, max file size: 100MB.
+```
 
 ---
 

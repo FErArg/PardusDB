@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.2.1"
+VERSION="0.2.2"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 BINARY_SOURCE="$SCRIPT_DIR/bin/pardus-v${VERSION}"
@@ -132,7 +132,7 @@ create_helper() {
     cat > "$INSTALL_DIR/$HELPER_NAME" << 'HELPER_SCRIPT'
 #!/bin/bash
 DB_DIR="$HOME/.pardus"
-DEFAULT_DB="$DB_DIR/data.pardus"
+DEFAULT_DB="$DB_DIR/pardus-rag.db"
 
 mkdir -p "$DB_DIR"
 
@@ -161,7 +161,7 @@ create_config() {
 # PardusDB Configuration File
 
 [database]
-default_path = "~/.pardus/data.pardus"
+default_path = "~/.pardus/pardus-rag.db"
 
 [logging]
 level = "info"
@@ -238,12 +238,12 @@ create_data_dir() {
     mkdir -p "$DATA_DIR"
 
     echo "  Directorio de datos: $DATA_DIR/"
-    echo "  Base de datos por defecto: $DATA_DIR/data.pardus"
+    echo "  Base de datos por defecto: $DATA_DIR/pardus-rag.db"
 
-    if [ ! -f "$DATA_DIR/data.pardus" ]; then
+    if [ ! -f "$DATA_DIR/pardus-rag.db" ]; then
         echo "  Creando base de datos por defecto..."
-        echo ".create $DATA_DIR/data.pardus" | "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 || true
-        if [ -f "$DATA_DIR/data.pardus" ]; then
+        echo ".create $DATA_DIR/pardus-rag.db" | "$INSTALL_DIR/$BINARY_NAME" > /dev/null 2>&1 || true
+        if [ -f "$DATA_DIR/pardus-rag.db" ]; then
             echo "  Base de datos creada exitosamente."
         fi
     fi

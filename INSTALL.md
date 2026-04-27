@@ -26,7 +26,7 @@ This installs:
 - Python SDK
 - TypeScript SDK
 
-The installer automatically creates the default database at `~/.pardus/data.pardus` after building.
+The installer automatically creates the default database at `~/.pardus/pardus-rag.db` after building.
 
 ### Quick Install (Precompiled)
 
@@ -36,7 +36,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.2.1` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.2.2` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 
@@ -101,7 +101,7 @@ pardusdb --version
 The `pardus` helper automatically manages the default database:
 
 ```bash
-pardus                    # Opens ~/.pardus/data.pardus (creates if missing)
+pardus                    # Opens ~/.pardus/pardus-rag.db (creates if missing)
 pardus mi.db              # Opens specific file
 ```
 
@@ -155,7 +155,7 @@ PardusDB uses a configuration file at `~/.config/pardus/config.toml`:
 
 ```toml
 [database]
-default_path = "~/.pardus/data.pardus"
+default_path = "~/.pardus/pardus-rag.db"
 
 [logging]
 level = "info"
@@ -194,7 +194,7 @@ Add this to your OpenCode configuration file (`~/.config/opencode/opencode.jsonc
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "/home/YOUR_USER/.pardus/mcp/dist/index.js"],
+      "command": ["node", "/home/${USER}/.pardus/mcp/dist/index.js"],
       "enabled": true
     }
   }
@@ -218,7 +218,7 @@ Add to `~/.claude.json`:
   "mcpServers": {
     "pardusdb": {
       "command": "node",
-      "args": ["/home/YOUR_USER/.pardus/mcp/dist/index.js"]
+      "args": ["/home/${USER}/.pardus/mcp/dist/index.js"]
     }
   }
 }
@@ -242,19 +242,19 @@ PardusDB stores all data in a single `.pardus` file. To backup:
 
 ```bash
 # Simple copy (while database is not in use)
-cp ~/.pardus/data.pardus ~/.pardus/data-backup-$(date +%Y%m%d).pardus
+cp ~/.pardus/pardus-rag.db ~/.pardus/data-backup-$(date +%Y%m%d).pardus
 
 # Or with the REPL
 pardus
 > .save
 > quit
-cp ~/.pardus/data.pardus /path/to/backup/
+cp ~/.pardus/pardus-rag.db /path/to/backup/
 ```
 
 ### Restore
 
 ```bash
-cp /path/to/backup/data.pardus ~/.pardus/data.pardus
+cp /path/to/backup/data.pardus ~/.pardus/pardus-rag.db
 pardus
 ```
 
@@ -365,7 +365,7 @@ pardusdb --version
 | Binary | `~/.local/bin/pardusdb` |
 | Helper script | `~/.local/bin/pardus` |
 | Data directory | `~/.pardus/` |
-| Default DB | `~/.pardus/data.pardus` |
+| Default DB | `~/.pardus/pardus-rag.db` |
 | MCP server | `~/.pardus/mcp/` |
 | Config file | `~/.config/pardus/config.toml` |
 | Python SDK | (installed via pip) |

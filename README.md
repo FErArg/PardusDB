@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](https://github.com/pardus-ai/pardusdb)
+[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/pardus-ai/pardusdb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 
@@ -47,7 +47,7 @@ This installs the binary, helper script, MCP server, and SDKs.
 
 ### Using the Helper (Recommended)
 
-The `pardus` helper automatically manages the default database at `~/.pardus/data.pardus`:
+The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`:
 
 ```bash
 pardus                    # Opens database, creates if missing
@@ -66,21 +66,21 @@ pardus
 ║          Vector Database with SQL Interface           ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-pardusdb [~/.pardus/data.pardus]> CREATE TABLE docs (embedding VECTOR(768), content TEXT);
+pardusdb [~/.pardus/pardus-rag.db]> CREATE TABLE docs (embedding VECTOR(768), content TEXT);
 Table 'docs' created
 
-pardusdb [~/.pardus/data.pardus]> INSERT INTO docs (embedding, content)
+pardusdb [~/.pardus/pardus-rag.db]> INSERT INTO docs (embedding, content)
 VALUES ([0.1, 0.2, 0.3, ...], 'Hello World');
 Inserted row with id=1
 
-pardusdb [~/.pardus/data.pardus]> SELECT * FROM docs
+pardusdb [~/.pardus/pardus-rag.db]> SELECT * FROM docs
 WHERE embedding SIMILARITY [0.1, 0.2, 0.3, ...] LIMIT 5;
 
 Found 1 similar rows:
   id=1, distance=0.0000, values=[Vector([...]), Text("Hello World")]
 
-pardusdb [~/.pardus/data.pardus]> quit
-Saved to: ~/.pardus/data.pardus
+pardusdb [~/.pardus/pardus-rag.db]> quit
+Saved to: ~/.pardus/pardus-rag.db
 Goodbye!
 ```
 
@@ -206,7 +206,7 @@ Add to your `opencode.jsonc`:
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["node", "/home/YOUR_USER/.pardus/mcp/dist/index.js"],
+      "command": ["node", "/home/${USER}/.pardus/mcp/dist/index.js"],
       "enabled": true
     }
   }

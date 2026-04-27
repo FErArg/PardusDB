@@ -5,6 +5,18 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-04-27
+
+### Added
+
+- **OpenCode MCP auto-config**: Installers detect the user and automatically configure MCP in `~/.config/opencode/opencode.jsonc`
+- **User-aware MCP path**: MCP server path in documentation uses `${USER}` placeholder resolved at install time
+
+### Changed
+
+- **Default database name**: `data.pardus` → `pardus-rag.db` (more descriptive name)
+- **MCP path placeholder**: `YOUR_USER` → `${USER}` in docs for clarity
+
 ## [0.2.1] - 2026-04-27
 
 ### Changed
@@ -13,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config directory**: New `~/.config/pardus/` for configuration files
 - **Platform detection**: `setup.sh` now detects Linux vs macOS
 - **Shell detection**: `setup.sh` auto-detects bash/zsh/fish for PATH instructions
-- **Auto-create database**: Default database `~/.pardus/data.pardus` is now created automatically after installation completes
+- **Auto-create database**: Default database `~/.pardus/pardus-rag.db` is now created automatically after installation completes
 - **Config file**: Installer creates `~/.config/pardus/config.toml` with default settings
 
 ### Added

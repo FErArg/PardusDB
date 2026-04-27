@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/pardus-ai/pardusdb)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/pardus-ai/pardusdb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 

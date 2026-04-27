@@ -36,7 +36,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.2.2` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.3.0` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 

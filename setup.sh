@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.2.2"
+VERSION="0.3.0"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 INSTALL_DIR="$HOME/.local/bin"
@@ -271,8 +271,86 @@ install_mcp() {
     echo "  MCP server instalado en: $MCP_DIR/"
 }
 
+configure_opencode() {
+    echo "[6/8] Configurando OpenCode..."
+
+    if [ ! -f "$MCP_DIR/dist/index.js" ]; then
+        echo "  MCP server no instalado, saltando configuracion OpenCode"
+        return
+    fi
+
+    local REAL_USER
+    REAL_USER=$(logname 2>/dev/null || echo "$USER")
+
+    echo -n "  Configurar PardusDB MCP para OpenCode? (s/N): "
+    read -r respuesta
+    if [ "$respuesta" != "s" ] && [ "$respuesta" != "S" ]; then
+        echo "  Omitido."
+        return
+    fi
+
+    local OPCODE_CONFIG_DIR="$HOME/.config/opencode"
+    local OPCODE_CONFIG="$OPCODE_CONFIG_DIR/opencode.jsonc"
+    local OPCODE_SKILLS_DIR="$HOME/.config/opencode/skills"
+    local SKILL_SOURCE="$SCRIPT_DIR/skill/skill.md"
+
+    if [ -f "$SKILL_SOURCE" ]; then
+        mkdir -p "$OPCODE_SKILLS_DIR"
+        cp "$SKILL_SOURCE" "$OPCODE_SKILLS_DIR/pardusdb.md"
+        echo "  Skill copiado: $OPCODE_SKILLS_DIR/pardusdb.md"
+    fi
+
+    local MCP_PATH="/home/$REAL_USER/.pardus/mcp/dist/index.js"
+
+    if [ -f "$OPCODE_CONFIG" ]; then
+        if python3 -c "
+import json
+with open('$OPCODE_CONFIG') as f:
+    cfg = json.load(f)
+exit(0 if 'pardusdb' in cfg.get('mcp', {}) else 1)
+" 2>/dev/null; then
+            echo "  Entrada 'pardusdb' ya existe en $OPCODE_CONFIG"
+            echo "  Omitiendo."
+            return
+        fi
+
+        python3 -c "
+import json
+with open('$OPCODE_CONFIG') as f:
+    cfg = json.load(f)
+if 'mcp' not in cfg:
+    cfg['mcp'] = {}
+cfg['mcp']['pardusdb'] = {
+    'type': 'local',
+    'command': ['node', '$MCP_PATH'],
+    'enabled': True
+}
+with open('$OPCODE_CONFIG', 'w') as f:
+    json.dump(cfg, f, indent=2)
+    f.write('\n')
+" 2>/dev/null && echo "  MCP configurado en: $OPCODE_CONFIG" || echo "  ERROR: No se pudo actualizar $OPCODE_CONFIG"
+    else
+        mkdir -p "$OPCODE_CONFIG_DIR"
+        cat > "$OPCODE_CONFIG" << JSONEOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pardusdb": {
+      "type": "local",
+      "command": ["node", "$MCP_PATH"],
+      "enabled": true
+    }
+  }
+}
+JSONEOF
+        echo "  Creado: $OPCODE_CONFIG"
+    fi
+
+    echo "  Recuerda reiniciar OpenCode para que los cambios surtan efecto."
+}
+
 install_python_sdk() {
-    echo "[6/7] Instalando SDK Python..."
+    echo "[7/8] Instalando SDK Python..."
 
     if [ ! -d "$SCRIPT_DIR/sdk/python" ]; then
         echo "  ADVERTENCIA: Directorio sdk/python/ no encontrado, saltando SDK Python"
@@ -291,7 +369,7 @@ install_python_sdk() {
 }
 
 create_data_dir() {
-    echo "[7/7] Creando directorio de datos..."
+    echo "[8/8] Creando directorio de datos..."
 
     mkdir -p "$DATA_DIR"
 
@@ -338,6 +416,7 @@ do_install() {
     create_helper
     create_config
     install_mcp
+    configure_opencode
     install_python_sdk
     create_data_dir
     verify_installation

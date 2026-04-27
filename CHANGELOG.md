@@ -5,12 +5,15 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.2] - 2026-04-27
+## [0.3.0] - 2026-04-28
 
 ### Added
 
-- **OpenCode MCP auto-config**: Installers detect the user and automatically configure MCP in `~/.config/opencode/opencode.jsonc`
-- **User-aware MCP path**: MCP server path in documentation uses `${USER}` placeholder resolved at install time
+- **OpenCode MCP auto-configuration**: Both `setup.sh` and `install.sh` now ask if you want to configure PardusDB MCP for OpenCode. If you answer yes, the installer automatically adds the MCP server entry to `~/.config/opencode/opencode.jsonc` with the correct user path (`/home/${USER}/.pardus/mcp/dist/index.js`).
+- **OpenCode skill installation**: Installers automatically copy `skill/skill.md` to `~/.config/opencode/skills/pardusdb.md`, making PardusDB knowledge available to OpenCode agents.
+- **Precompiled binary**: `bin/pardus-v0.3.0` is included with each release for use with `install.sh` (fast installation without Rust compilation).
+
+## [0.2.2] - 2026-04-27
 
 ### Changed
 
@@ -33,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **install.sh**: New lightweight installer that uses precompiled binaries from `bin/pardus-vX.X.X`, skips Rust compilation
 - **Versioned binaries**: After compilation, `setup.sh` saves the binary to `bin/pardus-v0.2.1` for use with `install.sh`
 - **Rust auto-install**: `setup.sh` automatically installs Rust via `rustup` if `cargo` is not found
-- **OpenCode MCP auto-config**: Both `setup.sh` and `install.sh` ask if the user wants to configure PardusDB MCP in `~/.config/opencode/opencode.jsonc`
 
 ## [0.2.0] - 2026-04-27
 

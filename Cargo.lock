@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "pardusdb"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "async-trait",
  "bincode",

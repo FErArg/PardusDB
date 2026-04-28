@@ -691,12 +691,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     if not Path(dir_path).exists():
         return {"content": [{"type": "text", "text": f"Error: Directory not found: {dir_path}"}], "isError": True}
 
-    try:
-        check_result = db_client.execute(f"SELECT filename, content FROM {safe_table} LIMIT 1")
-        if "Error" in check_result:
-            ensure_import_table(safe_table, vector_dim)
-    except Exception:
-        ensure_import_table(safe_table, vector_dim)
+    ensure_import_table(safe_table, vector_dim)
 
     all_files = []
     base_path = Path(dir_path).resolve()

@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use pardusdb::{Database, ExecuteResult};
 
@@ -21,8 +22,15 @@ fn run_with_file(path: &str) {
     println!("Opening database: {}", path);
 
     match Database::open(path) {
-        Ok(_db) => {
+        Ok(mut db) => {
             println!("Database opened successfully.\n");
+            demo_operations(&mut db);
+
+            if let Err(e) = db.save() {
+                println!("Error saving database: {}", e);
+            } else {
+                println!("\nDatabase saved to: {}", path);
+            }
         }
         Err(e) => println!("Error opening database: {}", e),
     }
@@ -210,3 +218,43 @@ fn print_help() {
 "#);
 }
 
+fn demo_operations(db: &mut Database) {
+    println!("--- Creating table ---");
+    let result = db.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, embedding VECTOR(128), title TEXT, score FLOAT);"
+    );
+    println!("{}\n", result.unwrap());
+
+    println!("--- Inserting 100 documents ---");
+    let start = Instant::now();
+
+    for i in 0..100 {
+        let vec: Vec<String> = (0..128).map(|j| format!("{:.2}", (i * 128 + j) as f32 / 1000.0)).collect();
+        let sql = format!(
+            "INSERT INTO documents (embedding, title, score) VALUES ([{}], 'Doc {}', {:.2});",
+            vec.join(", "), i, i as f32 / 100.0
+        );
+        db.execute(&sql).unwrap();
+    }
+    println!("Inserted in {:?}\n", start.elapsed());
+
+    println!("--- Tables ---");
+    println!("{}\n", db.execute("SHOW TABLES;").unwrap());
+
+    println!("--- Select (limit 3) ---");
+    println!("{}\n", db.execute("SELECT * FROM documents LIMIT 3;").unwrap());
+
+    println!("--- Similarity search ---");
+    let query_vec: Vec<String> = (0..128).map(|i| format!("{:.2}", i as f32 / 1000.0)).collect();
+    let sql = format!("SELECT * FROM documents WHERE embedding SIMILARITY [{}] LIMIT 5;", query_vec.join(", "));
+    let start = Instant::now();
+    let result = db.execute(&sql).unwrap();
+    println!("Query in {:?}", start.elapsed());
+    println!("{}\n", result);
+
+    println!("--- Update ---");
+    println!("{}\n", db.execute("UPDATE documents SET score = 1.0 WHERE id = 1;").unwrap());
+
+    println!("--- Delete ---");
+    println!("{}\n", db.execute("DELETE FROM documents WHERE id = 2;").unwrap());
+}

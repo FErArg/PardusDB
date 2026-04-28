@@ -5,20 +5,6 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.6] - 2026-04-28
-
-### Fixed
-
-- **MCP read operations always recreated demo table**: Removed `demo_operations()` from `run_with_file()` in `src/main.rs`, which was called on every file open. Since the MCP server spawns a new `pardusdb` process per operation, every read query (SELECT, SHOW TABLES) would recreate the "documents" table and insert 100 demo rows, polluting the database.
-
-## [0.4.5] - 2026-04-28
-
-### Added
-
-- **Document dependency installer**: New `install_document_dependencies()` function in `setup.sh` and `install.sh` that installs pypdf, python-docx, openpyxl, and xlrd for full document import support.
-- **sentence-transformers installer**: New `install_sentence_transformers()` function in both installers for automatic embeddings during document import. Installs the `all-MiniLM-L6-v2` model (~80MB).
-- **Optional dependencies**: Both functions are optional — users choose whether to install heavy dependencies like sentence-transformers.
-
 ## [0.4.4] - 2026-04-28
 
 ### Fixed

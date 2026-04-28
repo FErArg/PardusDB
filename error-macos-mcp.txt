@@ -138,3 +138,8 @@ git push
 Limitaciones detectadas:
 - import_text no creó la tabla automáticamente, la tuve que crear manualmente.
 - No se generaron embeddings porque falta sentence-transformers.
+
+
+
+- La primera ingesta falló porque Pardus no creó la tabla automáticamente; la creé manualmente y luego la importación funcionó.
+- La importación quedó sin embeddings porque falta sentence-transformers, así que la base está cargada pero no con búsqueda semántica completa.

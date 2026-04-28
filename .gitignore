@@ -1,0 +1,9 @@
+target/
+*.pyc
+__pycache__/
+*.pardus
+bin/pardus-v0.2*
+bin/pardus-v0.3*
+bin/pardus-v0.4.[0-9]
+bin/pardus-v0.4.1[0-2]
+--version

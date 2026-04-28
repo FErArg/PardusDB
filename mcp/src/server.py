@@ -22,8 +22,14 @@ try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
     from mcp.types import Tool, TextContent
-except ImportError:
-    print("Error: mcp package not found. Install with: pip install mcp", file=sys.stderr)
+except ImportError as exc:
+    is_macos = sys.platform == "darwin"
+    if is_macos:
+        print("Error: mcp package not found.", file=sys.stderr)
+        print("On macOS, run this script via ~/.pardus/mcp/run_mcp.sh, not directly with python3.", file=sys.stderr)
+        print("(The installer creates a virtual environment that contains the mcp package.)", file=sys.stderr)
+    else:
+        print("Error: mcp package not found. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
 
 

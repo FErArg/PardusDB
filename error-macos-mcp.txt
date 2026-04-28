@@ -131,3 +131,10 @@ git push
 
 
 ./install-macos.sh: line 11: ${OS,,}-${ARCH}: bad substitution
+
+
+
+
+Limitaciones detectadas:
+- import_text no creó la tabla automáticamente, la tuve que crear manualmente.
+- No se generaron embeddings porque falta sentence-transformers.

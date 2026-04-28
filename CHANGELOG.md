@@ -5,6 +5,12 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2026-04-28
+
+### Added
+
+- **Content hash dedup**: Duplicate documents are now detected not only by file hash but also by content hash. If the same content exists in different files, it will be skipped during import.
+
 ## [0.4.7] - 2026-04-28
 
 ### Fixed

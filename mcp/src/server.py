@@ -191,6 +191,7 @@ def ensure_import_table(table: str, dim: int) -> None:
         filename TEXT,
         file_size INT,
         file_hash TEXT,
+        content_hash TEXT,
         imported_at TEXT,
         total_parents INT,
         total_children INT,
@@ -204,22 +205,23 @@ def log_import(
     filename: str,
     file_size: int,
     file_hash: str,
+    content_hash: str,
     total_parents: int,
     total_children: int,
     status: str,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     sql = f"""INSERT INTO __import_log__
-        (table_name, doc_path, filename, file_size, file_hash, imported_at, total_parents, total_children, status)
-        VALUES ('{table}', '{doc_path}', '{filename}', {file_size}, '{file_hash}', '{now}', {total_parents}, {total_children}, '{status}')"""
+        (table_name, doc_path, filename, file_size, file_hash, content_hash, imported_at, total_parents, total_children, status)
+        VALUES ('{table}', '{doc_path}', '{filename}', {file_size}, '{file_hash}', '{content_hash}', '{now}', {total_parents}, {total_children}, '{status}')"""
     try:
         db_client.execute(sql)
     except Exception:
         pass
 
 
-def is_already_imported(table: str, file_hash: str) -> bool:
-    sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table}' AND file_hash = '{file_hash}'"
+def is_already_imported(table: str, file_hash: str, content_hash: str) -> bool:
+    sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table}' AND (file_hash = '{file_hash}' OR content_hash = '{content_hash}')"
     try:
         result = db_client.execute(sql)
         import re
@@ -683,10 +685,6 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             fhash = "unknown"
 
-        if is_already_imported(table, fhash):
-            stats["skipped"] += 1
-            continue
-
         try:
             parsed = parser(fpath)
         except ImportError as e:
@@ -702,6 +700,15 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         content = parsed.get("content", "")
         pages = parsed.get("pages", [])
         total_chunks = len(pages) if pages else 1
+
+        try:
+            chash = hashlib.sha256(content.encode()).hexdigest() if content else "empty"
+        except Exception:
+            chash = "unknown"
+
+        if is_already_imported(table, fhash, chash):
+            stats["skipped"] += 1
+            continue
 
         try:
             page_texts = [p.get("content", "") for p in pages]
@@ -748,7 +755,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
                              f"{page_num}, '{ext[1:]}', {parent_id}, '{fpath_esc}', {chunk_idx + 1}, {total_chunks}, '{title_esc}')")
                 db_client.execute(child_sql)
 
-            log_import(table, fpath, file_path.name, fsize, fhash, 1, total_chunks, "ok")
+            log_import(table, fpath, file_path.name, fsize, fhash, chash, 1, total_chunks, "ok")
             stats["imported"] += 1
             imported_files.append(file_path.name)
 
@@ -756,7 +763,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             stats["errors"] += 1
             error_details.append(f"{file_path.name}: {str(e)}")
             try:
-                log_import(table, fpath, file_path.name, fsize, fhash, 0, 0, "error")
+                log_import(table, fpath, file_path.name, fsize, fhash, chash, 0, 0, "error")
             except Exception:
                 pass
 
@@ -1147,7 +1154,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.7")
+server = Server("pardusdb-mcp", "0.4.8")
 
 
 @server.list_tools()

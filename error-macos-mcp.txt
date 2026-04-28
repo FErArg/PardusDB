@@ -116,3 +116,13 @@ fernando@Qatium-C6VKVF97WW mcp % ./run_mcp.sh
 Error: mcp package not found.
 On macOS, run this script via ~/.pardus/mcp/run_mcp.sh, not directly with python3.
 (The installer creates a virtual environment that contains the mcp package.)
+
+
+
+Próximo paso para ti: en tu Mac:
+cd pardusdb
+cargo build --release
+cp target/release/pardusdb bin/pardus-v0.4.15-darwin-arm64
+git add bin/pardus-v0.4.15-darwin-arm64
+git commit -m "chore: add macOS ARM64 binary for v0.4.15"
+git push

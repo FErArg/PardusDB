@@ -64,16 +64,56 @@ cd pardusdb
 
 ---
 
+---
+
+### Option 3: install-macos.sh — macOS with virtual environment
+
+```bash
+git clone https://github.com/pardus-ai/pardusdb
+cd pardusdb
+./install-macos.sh --install
+```
+
+**What it does:**
+1. Checks for Rust and Python 3 (required)
+2. Compiles `pardusdb` with `cargo build --release`
+3. Installs the binary, helper, MCP server, config
+4. Creates a Python virtual environment at `~/.pardus/mcp/venv/`
+5. Installs the `mcp` package inside the venv (avoids macOS SIP / PEP 668 restrictions)
+6. Generates a wrapper script `~/.pardus/mcp/run_mcp.sh`
+7. Creates default database
+
+**Why a virtual environment?** macOS 26+ may block global pip installs due to System Integrity Protection. The venv isolates the MCP dependencies and works on all macOS versions without extra flags.
+
+**MCP in OpenCode:** The wrapper script is used as the command in `opencode.json`:
+```json
+{
+  "mcp": {
+    "pardusdb": {
+      "type": "local",
+      "command": ["$HOME/.pardus/mcp/run_mcp.sh"],
+      "enabled": true
+    }
+  }
+}
+```
+
+**Use this when:** You are on macOS, want a clean setup without touching system Python packages.
+
+---
+
 ### Comparison
 
-| | setup.sh | install.sh |
-|---|---|---|
-| Requires Rust | Yes (auto-installed if missing) | No |
-| Compiles source | Yes (`cargo build --release`) | No |
-| Takes binary from | `target/release/pardusdb` | `bin/pardus-v*` |
-| Writes binary to `bin/` | Yes (saves compiled version) | No |
-| Speed | ~1-3 min (compilation) | <1 second (copy only) |
-| MCP server, SDK, config | Same | Same |
+| | setup.sh | install.sh | install-macos.sh |
+|---|---|---|---|
+| Requires Rust | Yes (auto-installed) | No | Yes |
+| Compiles source | Yes | No | Yes |
+| Takes binary from | `target/release/` | `bin/pardus-v*` | `target/release/` |
+| Writes binary to `bin/` | Yes | No | Yes |
+| MCP installation | global pip | global pip | **virtual environment** |
+| macOS compatibility | Partial | Partial | **Recommended** |
+| Speed | ~1-3 min | <1 second | ~1-3 min |
+| MCP server, SDK, config | Same | Same | Same |
 
 ---
 
@@ -99,6 +139,8 @@ On macOS, ensure `~/.local/bin` is in your PATH (zsh is default on recent macOS 
 echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+**Recommended installer:** Use `install-macos.sh` on macOS. It installs the MCP server inside a Python virtual environment, avoiding SIP / PEP 668 restrictions that may block global `pip` on macOS 26+. See [Option 3](#option-3-install-macossh--macos-with-virtual-environment) above.
 
 ---
 

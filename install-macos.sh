@@ -12,6 +12,7 @@ PARDUS_HOME="$HOME/.pardus"
 CONFIG_DIR="$HOME/.config/pardus"
 DATA_DIR="$PARDUS_HOME"
 MCP_DIR="$PARDUS_HOME/mcp"
+PYTHON_BIN="python3"
 
 show_help() {
     cat << EOF
@@ -70,39 +71,42 @@ check_prerequisites() {
             echo ""
 
             if command -v brew &> /dev/null; then
-                echo "Opciones para instalar Python 3.10+:"
-                echo "  1) Instalar Python 3.13 via Homebrew (recomendado):"
-                echo "       brew install python@3.13"
-                echo ""
-                echo "  2) Salir y resolverlo manualmente"
-                echo ""
-                read -p "  Opcion [1/2]: " py_opcion
+                local brew_prefix
+                brew_prefix=$(brew --prefix)
+                local brew_python="$brew_prefix/opt/python@3.13/bin/python3.13"
 
-                if [ "$py_opcion" = "1" ]; then
-                    echo "  Instalando python@3.13 via Homebrew..."
-                    brew install python@3.13 2>/dev/null
-                    local brew_prefix
-                    brew_prefix=$(brew --prefix)
-                    local brew_python="$brew_prefix/opt/python@3.13/bin/python3"
-                    if [ ! -f "$brew_python" ]; then
-                        echo "ERROR: $brew_python no encontrado despues de la instalacion."
-                        echo "  brew install pudo haber fallado. Verifica con: brew list python@3.13"
+                if [ ! -f "$brew_python" ]; then
+                    echo "Opciones para instalar Python 3.10+:"
+                    echo "  1) Instalar Python 3.13 via Homebrew (recomendado):"
+                    echo "       brew install python@3.13"
+                    echo ""
+                    echo "  2) Salir y resolverlo manualmente"
+                    echo ""
+                    read -p "  Opcion [1/2]: " py_opcion
+
+                    if [ "$py_opcion" = "1" ]; then
+                        echo "  Instalando python@3.13 via Homebrew..."
+                        brew install python@3.13 2>/dev/null
+                        if [ ! -f "$brew_python" ]; then
+                            echo "ERROR: $brew_python no encontrado despues de la instalacion."
+                            echo "  brew install pudo haber fallado. Verifica con: brew list python@3.13"
+                            exit 1
+                        fi
+                    else
+                        echo "Instalacion cancelada. Instala Python 3.10+ e intenta de nuevo."
                         exit 1
                     fi
-                    export PATH="$brew_prefix/opt/python@3.13/bin:$PATH"
-                    hash -r 2>/dev/null || true
-                    local new_py_version
-                    new_py_version=$("$brew_python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
-                    if [ "$(printf '%s\n' "3.10" "$new_py_version" | sort -V | head -n1)" != "3.10" ]; then
-                        echo "ERROR: La instalacion de python@3.13 no proporciono Python 3.10+."
-                        echo "  Version encontrada: $new_py_version"
-                        exit 1
-                    fi
-                    echo "  Python $new_py_version detectado. Continuando..."
-                else
-                    echo "Instalacion cancelada. Instala Python 3.10+ e intenta de nuevo."
+                fi
+
+                local new_py_version
+                new_py_version=$("$brew_python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+                if [ "$(printf '%s\n' "3.10" "$new_py_version" | sort -V | head -n1)" != "3.10" ]; then
+                    echo "ERROR: La instalacion de python@3.13 no proporciono Python 3.10+."
+                    echo "  Version encontrada: $new_py_version"
                     exit 1
                 fi
+                PYTHON_BIN="$brew_python"
+                echo "  Python $new_py_version detectado. Continuando..."
             else
                 echo "ERROR: Homebrew no encontrado."
                 echo ""
@@ -228,7 +232,7 @@ install_mcp() {
 
     echo "  Instalando paquete MCP de Python en virtual environment..."
 
-    python3 -m venv "$MCP_DIR/venv"
+    "$PYTHON_BIN" -m venv "$MCP_DIR/venv"
 
     "$MCP_DIR/venv/bin/pip" install --upgrade pip -q
 
@@ -242,7 +246,7 @@ install_mcp() {
 
     cat > "$MCP_DIR/run_mcp.sh" << WRAPPER_EOF
 #!/bin/bash
-exec python3 $MCP_DIR/server.py
+exec "$MCP_DIR/venv/bin/python" "$MCP_DIR/server.py"
 WRAPPER_EOF
     chmod +x "$MCP_DIR/run_mcp.sh"
 

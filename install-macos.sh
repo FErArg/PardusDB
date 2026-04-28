@@ -291,7 +291,11 @@ install_sentence_transformers() {
         return
     fi
 
-    pip3 install sentence-transformers --quiet 2>/dev/null || pip3 install sentence-transformers --quiet --break-system-packages 2>/dev/null
+    if [ -d "$MCP_DIR/venv" ]; then
+        "$MCP_DIR/venv/bin/pip" install sentence-transformers -q 2>/dev/null
+    else
+        pip3 install sentence-transformers --quiet 2>/dev/null || pip3 install sentence-transformers --quiet --break-system-packages 2>/dev/null
+    fi
 
     CACHE_DIR="$HOME/.cache/huggingface/hub"
     MODEL_DIR="models--sentence-transformers--all-MiniLM-L6-v2"

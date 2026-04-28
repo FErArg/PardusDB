@@ -34,7 +34,7 @@ If you already have a precompiled binary and want a faster installation (no Rust
 ./install.sh --install
 ```
 
-This copies `bin/pardus-v0.4.5` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
+This copies `bin/pardus-v0.4.4` to `~/.local/bin/pardusdb` and installs the MCP server, Python SDK, and configuration.
 
 ---
 
@@ -246,14 +246,13 @@ Tabular files (CSV, XLSX) create one parent plus one child per row.
 
 **Parent-child structure:** Each imported file creates a parent record (`page=0`, `parent_doc_id=NULL`) plus one child record per page/paragraph/row, linked via `parent_doc_id`. Additional fields track the relationship: `chunk_index`, `total_chunks`, `filename`, `title`, and `doc_path`.
 
-**Dependencies:** The installers (`setup.sh` and `install.sh`) ask whether to install document parsing libraries and sentence-transformers automatically. To install manually:
+**Optional dependencies for specific formats:**
 
 ```bash
 pip install sentence-transformers  # automatic embeddings (recommended, all-MiniLM-L6-v2, 384-dim)
 pip install pypdf                  # PDF support
 pip install python-docx            # DOCX support
 pip install openpyxl               # XLSX support
-pip install xlrd                   # XLS support
 ```
 
 If `sentence-transformers` is not installed, vectors are stored as zeros. If a format library is missing, files of that type are skipped with a warning.

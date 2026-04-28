@@ -59,3 +59,45 @@ fernando@Qatium-C6VKVF97WW pardus-rag % brew list python@3.13
 /opt/homebrew/Cellar/python@3.13/3.13.13_1/sbom.spdx.json
 /opt/homebrew/Cellar/python@3.13/3.13.13_1/share/man/man1/python3.13.1
 fernando@Qatium-C6VKVF97WW pardus-rag %
+
+
+
+
+
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+
+
+
+
+
+
+[1/9] Instalando binario...
+Binario instalado en: /Users/fernando/.local/bin/pardusdb (ya en PATH)
+[2/9] Creando helper 'pardus'...
+Helper instalado en: /Users/fernando/.local/bin/pardus
+[3/9] Creando archivo de configuracion...
+  Configuracion en: /Users/fernando/.config/pardus/config.toml
+[4/9] Instalando servidor MCP (Python)...
+  Instalando paquete MCP de Python en virtual environment...
+  - mcp (Python package): OK
+  MCP server instalado en: /Users/fernando/.pardus/mcp/
+  Wrapper: /Users/fernando/.pardus/mcp/run_mcp.sh
+[5/9] Instalando dependencias para importar documentos...
+  Instalar librerias para importar PDF, DOCX, XLSX, XLS? (s/N): s
+  - pypdf (PDF): OK
+  - python-docx (DOCX): OK
+  - openpyxl (XLSX): OK
+  - xlrd (XLS antiguo): OK
+[6/9] Instalando sentence-transformers para embeddings automaticos...
+  Instalar sentence-transformers (recomendado, ~80MB)? (s/N): s
+  - sentence-transformers: instalado, descarga pendiente al primer uso (~80MB)
+[7/9] Configurando OpenCode...
+  Configurar PardusDB MCP para OpenCode? (s/N): s
+  Skill copiado: /Users/fernando/.config/opencode/skills/pardusdb.md
+  Entrada 'pardusdb' ya existe en /Users/fernando/.config/opencode/opencode.json
+  Omitiendo.
+[8/9] Instalando SDK Python...
+fernando@Qatium-C6VKVF97WW pardus-rag % cd
+fernando@Qatium-C6VKVF97WW ~ % python3 .pardus/mcp/server.py
+Error: mcp package not found. Install with: pip install mcp

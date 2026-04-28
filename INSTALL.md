@@ -66,7 +66,7 @@ cd pardusdb
 
 ---
 
-### Option 3: install-macos.sh — macOS with virtual environment (no Rust required)
+### Option 3: install-macos.sh — macOS with virtual environment (auto-installs Python 3.10+ if needed)
 
 ```bash
 git clone https://github.com/pardus-ai/pardusdb
@@ -75,14 +75,17 @@ cd pardusdb
 ```
 
 **What it does:**
-1. Copies the precompiled binary from `bin/pardus-v0.4.14` to `~/.local/bin/pardusdb`
-2. Installs the helper, MCP server, config
-3. Creates a Python virtual environment at `~/.pardus/mcp/venv/`
-4. Installs the `mcp` package inside the venv (avoids macOS SIP / PEP 668 restrictions)
-5. Generates a wrapper script `~/.pardus/mcp/run_mcp.sh`
-6. Creates default database
+1. Checks for Python 3.10+ (required by the `mcp` Python package)
+2. If Python < 3.10 is detected and Homebrew is available: offers to install Python 3.13 via `brew install python@3.13`
+3. If Python < 3.10 and no Homebrew: shows instructions and exits
+4. Copies the precompiled binary from `bin/pardus-v0.4.14` to `~/.local/bin/pardusdb`
+5. Installs the helper, MCP server, config
+6. Creates a Python virtual environment at `~/.pardus/mcp/venv/`
+7. Installs the `mcp` package inside the venv
+8. Generates a wrapper script `~/.pardus/mcp/run_mcp.sh`
+9. Creates default database
 
-**Why a virtual environment?** macOS 26+ may block global pip installs due to System Integrity Protection. The venv isolates the MCP dependencies and works on all macOS versions without extra flags. Uses the precompiled binary — no Rust compilation needed.
+**Why a virtual environment?** Isolates the MCP Python package from system packages. Works alongside macOS system Python 3.9 without conflicts.
 
 **MCP in OpenCode:** The wrapper script is used as the command in `opencode.json`:
 ```json
@@ -97,7 +100,7 @@ cd pardusdb
 }
 ```
 
-**Use this when:** You are on macOS, want a fast setup without Rust, and need a clean MCP installation isolated from system Python packages.
+**Use this when:** You are on macOS, want a fast setup without Rust, and need a clean MCP installation.
 
 ---
 
@@ -106,12 +109,13 @@ cd pardusdb
 | | setup.sh | install.sh | install-macos.sh |
 |---|---|---|---|
 | Requires Rust | Yes (auto-installed) | No | **No** |
+| Requires Python 3.10+ | No | No | **Yes (auto-installed via Homebrew)** |
 | Compiles source | Yes | No | No |
 | Takes binary from | `target/release/` | `bin/pardus-v*` | `bin/pardus-v*` |
 | Writes binary to `bin/` | Yes | No | No |
 | MCP installation | global pip | global pip | **virtual environment** |
 | macOS compatibility | Partial | Partial | **Recommended** |
-| Speed | ~1-3 min | <1 second | <1 second |
+| Speed | ~1-3 min | <1 second | <1 second + Python install if needed |
 | MCP server, SDK, config | Same | Same | Same |
 
 ---

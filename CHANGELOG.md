@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Repository cleanup**: Added `.gitignore` (target/, *.pyc, __pycache__/, *.pardus). Removed orphaned files: nodesource_setup.sh, test_mcp_tools.py, unrelated docs (CELEX PDF, BOE summary), accidentally committed --version binary and __pycache__ bytecode.
 - **Docs**: Revised README.md and INSTALL.md with clearer setup.sh vs install.sh comparison tables.
 - **macOS installer**: Replaced `install-macos.sh` with a venv-based MCP installation. Now uses the precompiled binary from `bin/pardus-v0.4.14` (no Rust compilation). Installs MCP inside `~/.pardus/mcp/venv/` with a wrapper script `run_mcp.sh` for OpenCode integration. Removed Rust as a prerequisite — only Python 3 and pip are required.
+- **macOS Python 3.10+ auto-install**: `install-macos.sh` now detects if Python < 3.10 is in use (common on macOS 26 which ships 3.9) and offers to install Python 3.13 via Homebrew automatically. If Homebrew is not available, displays clear installation instructions and exits rather than silently failing the MCP install.
 
 ## [0.4.13] - 2026-04-28
 

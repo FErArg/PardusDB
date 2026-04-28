@@ -61,9 +61,59 @@ check_prerequisites() {
 
     if ! command -v python3 &> /dev/null; then
         missing+=("Python 3 (python3) - instalar desde https://python.org/")
+    else
+        local py_version
+        py_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+
+        if [ "$(printf '%s\n' "3.10" "$py_version" | sort -V | head -n1)" != "3.10" ]; then
+            echo "ERROR: Python $py_version detectado. El paquete MCP requiere Python 3.10+."
+            echo ""
+
+            if command -v brew &> /dev/null; then
+                echo "Opciones para instalar Python 3.10+:"
+                echo "  1) Instalar Python 3.13 via Homebrew (recomendado):"
+                echo "       brew install python@3.13"
+                echo ""
+                echo "  2) Salir y resolverlo manualmente"
+                echo ""
+                read -p "  Opcion [1/2]: " py_opcion
+
+                if [ "$py_opcion" = "1" ]; then
+                    echo "  Instalando python@3.13 via Homebrew..."
+                    brew install python@3.13 2>/dev/null
+                    local brew_prefix
+                    brew_prefix=$(brew --prefix)
+                    export PATH="$brew_prefix/opt/python@3.13/bin:$PATH"
+                    hash -r
+                    local new_py_version
+                    new_py_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+                    if [ "$(printf '%s\n' "3.10" "$new_py_version" | sort -V | head -n1)" != "3.10" ]; then
+                        echo "ERROR: La instalacion de python@3.13 no actualizo python3 a 3.10+."
+                        echo "  Asegurate de que $brew_prefix/opt/python@3.13/bin este en tu PATH."
+                        echo "  Agrega esta linea a ~/.zshrc:"
+                        echo "    export PATH=\"$brew_prefix/opt/python@3.13/bin:\$PATH\""
+                        exit 1
+                    fi
+                    echo "  Python $new_py_version detectado. Continuando..."
+                else
+                    echo "Instalacion cancelada. Instala Python 3.10+ e intenta de nuevo."
+                    exit 1
+                fi
+            else
+                echo "ERROR: Homebrew no encontrado."
+                echo ""
+                echo "Instala Python 3.10+ de alguna de estas formas:"
+                echo "  - Homebrew: https://brew.sh/"
+                echo "    brew install python@3.13"
+                echo "  - python.org: https://www.python.org/downloads/"
+                echo ""
+                echo "Despues de instalar, agrega el binario de Python a tu PATH y vuelve a ejecutar."
+                exit 1
+            fi
+        fi
     fi
 
-    if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
+    if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null && ! command -v python3 &> /dev/null; then
         missing+=("pip - se instala con Python")
     fi
 
@@ -172,23 +222,42 @@ install_mcp() {
 
     cp "$SCRIPT_DIR/mcp/src/server.py" "$MCP_DIR/"
 
-    echo "  Instalando paquete MCP de Python en virtual environment..."
+    PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+    USE_VENV=true
 
-    python3 -m venv "$MCP_DIR/venv"
+    if [ "$(printf '%s\n' "3.10" "$PYTHON_VERSION" | sort -V | head -n1)" != "3.10" ]; then
+        USE_VENV=false
+    fi
 
-    "$MCP_DIR/venv/bin/pip" install --upgrade pip -q
+    if [ "$USE_VENV" = true ]; then
+        echo "  Instalando paquete MCP de Python en virtual environment..."
 
-    if "$MCP_DIR/venv/bin/pip" install mcp -q; then
-        mcp_state="OK"
+        python3 -m venv "$MCP_DIR/venv"
+
+        "$MCP_DIR/venv/bin/pip" install --upgrade pip -q
+
+        if "$MCP_DIR/venv/bin/pip" install mcp -q 2>/dev/null; then
+            mcp_state="OK"
+        else
+            echo "  ADVERTENCIA: No se pudo instalar el paquete mcp"
+            mcp_state="fallo"
+        fi
     else
-        echo "  ADVERTENCIA: No se pudo instalar el paquete mcp"
-        mcp_state="fallo"
+        echo "  ADVERTENCIA: Python $PYTHON_VERSION detectado. EI paquete MCP requiere Python 3.10+."
+        echo "  Intentando instalacion global..."
+
+        if python3 -m pip install mcp --break-system-packages -q 2>/dev/null; then
+            mcp_state="OK"
+        else
+            echo "  ADVERTENCIA: No se pudo instalar el paquete mcp (Python $PYTHON_VERSION no compatible)"
+            mcp_state="fallo"
+        fi
     fi
     echo "  - mcp (Python package): $mcp_state"
 
     cat > "$MCP_DIR/run_mcp.sh" << WRAPPER_EOF
 #!/bin/bash
-exec $MCP_DIR/venv/bin/python $MCP_DIR/server.py
+exec python3 $MCP_DIR/server.py
 WRAPPER_EOF
     chmod +x "$MCP_DIR/run_mcp.sh"
 

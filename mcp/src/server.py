@@ -95,7 +95,10 @@ class PardusDBClient:
                 capture_output=True,
                 timeout=30,
             )
-            return (proc.stdout + proc.stderr).decode()
+            output = (proc.stdout + proc.stderr).decode()
+            if proc.returncode != 0:
+                return f"Error (exit {proc.returncode}): {output}"
+            return output
         except subprocess.TimeoutExpired:
             return "Error: Query timed out"
         except FileNotFoundError:
@@ -115,6 +118,24 @@ class PardusDBClient:
 
 
 db_client = PardusDBClient()
+
+
+# ==================== SQL Escaping Helpers ====================
+
+def sql_escape(s: str) -> str:
+    return s.replace("'", "''")
+
+
+def sql_escape_path(path: str) -> str:
+    return sql_escape(str(Path(path).resolve()))
+
+
+def sql_safe_identifier(name: str) -> str:
+    if not name:
+        raise ValueError("Empty identifier not allowed")
+    if not all(c.isalnum() or c == '_' for c in name):
+        raise ValueError(f"Invalid identifier: {name}")
+    return name
 
 
 # ==================== Helper Functions ====================
@@ -154,10 +175,11 @@ def get_table_schema(table: str) -> dict[str, Any]:
         "vector_dim": None,
     }
     try:
-        result = db_client.execute(f"SHOW TABLES")
+        safe_table = sql_safe_identifier(table)
+        result = db_client.execute("SHOW TABLES")
         if table in result:
             schema["exists"] = True
-        count_result = db_client.execute(f"SELECT COUNT(*) FROM {table}")
+        count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_table}")
         try:
             import re
             m = re.search(r"Count:\s*(\d+)", count_result)
@@ -171,7 +193,8 @@ def get_table_schema(table: str) -> dict[str, Any]:
 
 
 def ensure_import_table(table: str, dim: int) -> None:
-    create_sql = f"""CREATE TABLE IF NOT EXISTS {table} (
+    safe_table = sql_safe_identifier(table)
+    create_sql = f"""CREATE TABLE IF NOT EXISTS {safe_table} (
         embedding VECTOR({dim}),
         filename TEXT,
         content TEXT,
@@ -211,9 +234,12 @@ def log_import(
     status: str,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
+    table_esc = sql_escape(table)
+    doc_path_esc = sql_escape(doc_path)
+    filename_esc = sql_escape(filename)
     sql = f"""INSERT INTO __import_log__
         (table_name, doc_path, filename, file_size, file_hash, content_hash, imported_at, total_parents, total_children, status)
-        VALUES ('{table}', '{doc_path}', '{filename}', {file_size}, '{file_hash}', '{content_hash}', '{now}', {total_parents}, {total_children}, '{status}')"""
+        VALUES ('{table_esc}', '{doc_path_esc}', '{filename_esc}', {file_size}, '{file_hash}', '{content_hash}', '{now}', {total_parents}, {total_children}, '{status}')"""
     try:
         db_client.execute(sql)
     except Exception:
@@ -221,7 +247,8 @@ def log_import(
 
 
 def is_already_imported(table: str, file_hash: str, content_hash: str) -> bool:
-    sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table}' AND (file_hash = '{file_hash}' OR content_hash = '{content_hash}')"
+    table_esc = sql_escape(table)
+    sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table_esc}' AND (file_hash = '{file_hash}' OR content_hash = '{content_hash}')"
     try:
         result = db_client.execute(sql)
         import re
@@ -453,7 +480,8 @@ async def handle_create_database(args: dict[str, Any]) -> dict[str, Any]:
         if parent and not parent.exists():
             parent.mkdir(parents=True, exist_ok=True)
         db_client.set_db_path(db_path)
-        db_client.execute(f".create {db_path}")
+        import shlex
+        db_client.execute(f".create {shlex.quote(db_path)}")
         return {"content": [{"type": "text", "text": f"Database created successfully at: {db_path}"}]}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error creating database: {e}"}], "isError": True}
@@ -480,6 +508,7 @@ async def handle_create_table(args: dict[str, Any]) -> dict[str, Any]:
     if not name or not vector_dim:
         return {"content": [{"type": "text", "text": "Error: Table name and vector_dim are required"}], "isError": True}
     try:
+        safe_name = sql_safe_identifier(name)
         columns = [f"embedding VECTOR({vector_dim})"]
         type_map = {
             "str": "TEXT", "string": "TEXT",
@@ -488,12 +517,15 @@ async def handle_create_table(args: dict[str, Any]) -> dict[str, Any]:
         }
         if metadata_schema:
             for col_name, col_type in metadata_schema.items():
+                safe_col = sql_safe_identifier(col_name)
                 sql_type = type_map.get(col_type.lower(), col_type.upper())
-                columns.append(f"{col_name} {sql_type}")
-        sql = f"CREATE TABLE IF NOT EXISTS {name} ({', '.join(columns)})"
+                columns.append(f"{safe_col} {sql_type}")
+        sql = f"CREATE TABLE IF NOT EXISTS {safe_name} ({', '.join(columns)})"
         db_client.execute(sql)
         db_client.set_current_table(name)
         return {"content": [{"type": "text", "text": f"Table '{name}' created successfully with {vector_dim}-dimensional vectors.\n\nSQL: {sql}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid input: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error creating table: {e}"}], "isError": True}
 
@@ -507,21 +539,25 @@ async def handle_insert_vector(args: dict[str, Any]) -> dict[str, Any]:
     if not table:
         return {"content": [{"type": "text", "text": "Error: No table specified. Use 'use_table' first or provide 'table' parameter."}], "isError": True}
     try:
+        safe_table = sql_safe_identifier(table)
         columns = ["embedding"]
         values = [f"[{', '.join(str(x) for x in vector)}]"]
         if metadata:
             for key, val in metadata.items():
-                columns.append(key)
+                safe_key = sql_safe_identifier(key)
+                columns.append(safe_key)
                 if isinstance(val, str):
-                    values.append(f"'{val}'")
+                    values.append(f"'{sql_escape(val)}'")
                 elif isinstance(val, bool):
                     values.append("true" if val else "false")
                 else:
                     values.append(str(val))
-        sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)})"
+        sql = f"INSERT INTO {safe_table} ({', '.join(columns)}) VALUES ({', '.join(values)})"
         result = db_client.execute(sql)
         id_match = parse_id_from_result(result) or "unknown"
         return {"content": [{"type": "text", "text": f"Vector inserted successfully with ID: {id_match}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid input: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error inserting vector: {e}"}], "isError": True}
 
@@ -535,6 +571,7 @@ async def handle_batch_insert(args: dict[str, Any]) -> dict[str, Any]:
     if not table:
         return {"content": [{"type": "text", "text": "Error: No table specified"}], "isError": True}
     try:
+        safe_table = sql_safe_identifier(table)
         results = []
         for i, vector in enumerate(vectors):
             metadata = metadata_list[i] if metadata_list else None
@@ -542,19 +579,22 @@ async def handle_batch_insert(args: dict[str, Any]) -> dict[str, Any]:
             values = [f"[{', '.join(str(x) for x in vector)}]"]
             if metadata:
                 for key, val in metadata.items():
-                    columns.append(key)
+                    safe_key = sql_safe_identifier(key)
+                    columns.append(safe_key)
                     if isinstance(val, str):
-                        values.append(f"'{val}'")
+                        values.append(f"'{sql_escape(val)}'")
                     elif isinstance(val, bool):
                         values.append("true" if val else "false")
                     else:
                         values.append(str(val))
-            sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)})"
+            sql = f"INSERT INTO {safe_table} ({', '.join(columns)}) VALUES ({', '.join(values)})"
             result = db_client.execute(sql)
             vid = parse_id_from_result(result)
             if vid:
                 results.append(str(vid))
         return {"content": [{"type": "text", "text": f"Batch insert completed. Inserted {len(results)} vectors with IDs: {', '.join(results)}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid input: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error during batch insert: {e}"}], "isError": True}
 
@@ -568,10 +608,13 @@ async def handle_search_similar(args: dict[str, Any]) -> dict[str, Any]:
     if not table:
         return {"content": [{"type": "text", "text": "Error: No table specified"}], "isError": True}
     try:
+        safe_table = sql_safe_identifier(table)
         vector_str = f"[{', '.join(str(x) for x in query_vector)}]"
-        sql = f"SELECT * FROM {table} WHERE embedding SIMILARITY {vector_str} LIMIT {k}"
+        sql = f"SELECT * FROM {safe_table} WHERE embedding SIMILARITY {vector_str} LIMIT {k}"
         result = db_client.execute(sql)
         return {"content": [{"type": "text", "text": f"Search Results:\n\n{result}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid input: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error searching: {e}"}], "isError": True}
 
@@ -628,11 +671,16 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     if not dir_path or not table:
         return {"content": [{"type": "text", "text": "Error: dir_path and table are required"}], "isError": True}
 
+    try:
+        safe_table = sql_safe_identifier(table)
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
+
     if not Path(dir_path).exists():
         return {"content": [{"type": "text", "text": f"Error: Directory not found: {dir_path}"}], "isError": True}
 
     try:
-        ensure_import_table(table, vector_dim)
+        ensure_import_table(safe_table, vector_dim)
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error creating table: {e}"}], "isError": True}
 
@@ -706,10 +754,11 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             chash = "unknown"
 
-        if is_already_imported(table, fhash, chash):
+        if is_already_imported(safe_table, fhash, chash):
             stats["skipped"] += 1
             continue
 
+        embedder_failed = False
         try:
             page_texts = [p.get("content", "") for p in pages]
             if page_texts and HAS_EMBEDDER:
@@ -720,9 +769,11 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
                         vecs = vecs.tolist() if hasattr(vecs, 'tolist') else list(vecs)
                         if len(vecs) != len(page_texts) or (vecs and len(vecs[0]) != vector_dim):
                             vecs = [[0.0] * vector_dim] * len(page_texts)
+                            embedder_failed = True
                     except Exception as e:
                         print(f"[embedder] batch encode error for {file_path.name}: {e}", file=sys.stderr)
                         vecs = [[0.0] * vector_dim] * len(page_texts)
+                        embedder_failed = True
                 else:
                     vecs = [[0.0] * vector_dim] * len(page_texts)
             else:
@@ -734,7 +785,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             fpath_esc = fpath.replace("'", "''")
             fname_esc = file_path.name.replace("'", "''")
             content_esc = content.replace("'", "''")
-            parent_sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
+            parent_sql = (f"INSERT INTO {safe_table} (embedding, filename, content, page, file_type, "
                          f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
                          f"VALUES ({zero_vec_str}, '{fname_esc}', '{content_esc}', "
                          f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {total_chunks}, '{title_esc}')")
@@ -749,21 +800,23 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
                 chunk_content = page_data.get("content", "")
                 page_num = page_data.get("page", 0)
                 chunk_esc = chunk_content.replace("'", "''")
-                child_sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
+                child_sql = (f"INSERT INTO {safe_table} (embedding, filename, content, page, file_type, "
                              f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
                              f"VALUES ({chunk_vec_str}, '{fname_esc}', '{chunk_esc}', "
                              f"{page_num}, '{ext[1:]}', {parent_id}, '{fpath_esc}', {chunk_idx + 1}, {total_chunks}, '{title_esc}')")
                 db_client.execute(child_sql)
 
-            log_import(table, fpath, file_path.name, fsize, fhash, chash, 1, total_chunks, "ok")
+            log_import(safe_table, fpath, file_path.name, fsize, fhash, chash, 1, total_chunks, "ok" if not embedder_failed else "embedder_failed")
             stats["imported"] += 1
             imported_files.append(file_path.name)
+            if embedder_failed:
+                error_details.append(f"{file_path.name}: Embedding generation failed, stored zero vectors")
 
         except Exception as e:
             stats["errors"] += 1
             error_details.append(f"{file_path.name}: {str(e)}")
             try:
-                log_import(table, fpath, file_path.name, fsize, fhash, chash, 0, 0, "error")
+                log_import(safe_table, fpath, file_path.name, fsize, fhash, chash, 0, 0, "error")
             except Exception:
                 pass
 
@@ -807,6 +860,12 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
     if not Path(db_path).exists():
         return {"content": [{"type": "text", "text": f"Error: Database file not found: {db_path}"}], "isError": True}
 
+    if target_table:
+        try:
+            target_table = sql_safe_identifier(target_table)
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
+
     db_size = os.path.getsize(db_path)
     report = [f"Database Health Report", f"Database: {db_path}", f"Size: {db_size / 1024:.2f} KB", ""]
 
@@ -823,6 +882,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
     tables_to_check = [target_table] if target_table else [t for t in table_names if t != "__import_log__"]
 
     for tbl in tables_to_check:
+        safe_tbl = sql_safe_identifier(tbl)
         if tbl not in table_names:
             report.append(f"Table: {tbl}")
             report.append("  ❌ Table does not exist")
@@ -833,7 +893,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
         has_warnings = False
 
         try:
-            count_result = db_client.execute(f"SELECT COUNT(*) FROM {tbl}")
+            count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_tbl}")
             m = re.search(r"Count:\s*(\d+)", count_result)
             total_rows = int(m.group(1)) if m else 0
             report.append(f"  Total records: {total_rows}")
@@ -842,8 +902,8 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
         try:
             orphans_result = db_client.execute(
-                f"SELECT COUNT(*) FROM {tbl} WHERE parent_doc_id IS NOT NULL "
-                f"AND parent_doc_id NOT IN (SELECT id FROM {tbl} WHERE parent_doc_id IS NULL)"
+                f"SELECT COUNT(*) FROM {safe_tbl} WHERE parent_doc_id IS NOT NULL "
+                f"AND parent_doc_id NOT IN (SELECT id FROM {safe_tbl} WHERE parent_doc_id IS NULL)"
             )
             m = re.search(r"Count:\s*(\d+)", orphans_result)
             orphan_count = int(m.group(1)) if m else 0
@@ -857,7 +917,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
         try:
             dup_result = db_client.execute(
-                f"SELECT doc_path, COUNT(*) as cnt FROM {tbl} "
+                f"SELECT doc_path, COUNT(*) as cnt FROM {safe_tbl} "
                 f"WHERE parent_doc_id IS NULL AND doc_path IS NOT NULL "
                 f"GROUP BY doc_path HAVING cnt > 1"
             )
@@ -871,7 +931,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
         try:
             zero_result = db_client.execute(
-                f"SELECT COUNT(*) FROM {tbl} WHERE embedding = '[{', '.join(['0.0'] * DEFAULT_VECTOR_DIM)}]'"
+                f"SELECT COUNT(*) FROM {safe_tbl} WHERE embedding = '[{', '.join(['0.0'] * DEFAULT_VECTOR_DIM)}]'"
             )
             m = re.search(r"Count:\s*(\d+)", zero_result)
             zero_count = int(m.group(1)) if m else 0
@@ -913,13 +973,16 @@ async def handle_get_schema(args: dict[str, Any]) -> dict[str, Any]:
     table = args.get("table")
     if not table:
         return {"content": [{"type": "text", "text": "Error: Table name is required"}], "isError": True}
-
+    try:
+        safe_table = sql_safe_identifier(table)
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
     try:
         tables_result = db_client.execute("SHOW TABLES")
         if table not in tables_result:
             return {"content": [{"type": "text", "text": f"Table '{table}' does not exist"}], "isError": True}
 
-        count_result = db_client.execute(f"SELECT COUNT(*) FROM {table}")
+        count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_table}")
         import re
         m = re.search(r"Count:\s*(\d+)", count_result)
         row_count = int(m.group(1)) if m else 0
@@ -949,9 +1012,9 @@ async def handle_import_status(args: dict[str, Any]) -> dict[str, Any]:
         if action == "list":
             where_clauses = []
             if table:
-                where_clauses.append(f"table_name = '{table}'")
+                where_clauses.append(f"table_name = '{sql_escape(table)}'")
             if doc_path:
-                where_clauses.append(f"doc_path = '{doc_path}'")
+                where_clauses.append(f"doc_path = '{sql_escape(doc_path)}'")
             where = " AND ".join(where_clauses) if where_clauses else "1=1"
             sql = f"SELECT filename, table_name, file_size, imported_at, total_parents, total_children, status FROM __import_log__ WHERE {where} ORDER BY imported_at DESC LIMIT 50"
             result = db_client.execute(sql)
@@ -962,9 +1025,9 @@ async def handle_import_status(args: dict[str, Any]) -> dict[str, Any]:
                 return {"content": [{"type": "text", "text": "Error: Provide table or doc_path to reset"}], "isError": True}
             where_clauses = []
             if table:
-                where_clauses.append(f"table_name = '{table}'")
+                where_clauses.append(f"table_name = '{sql_escape(table)}'")
             if doc_path:
-                where_clauses.append(f"doc_path = '{doc_path}'")
+                where_clauses.append(f"doc_path = '{sql_escape(doc_path)}'")
             where = " AND ".join(where_clauses)
             sql = f"DELETE FROM __import_log__ WHERE {where}"
             db_client.execute(sql)
@@ -1154,7 +1217,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.10")
+server = Server("pardusdb-mcp", "0.4.11")
 
 
 @server.list_tools()

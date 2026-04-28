@@ -5,6 +5,20 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.11] - 2026-04-28
+
+### Fixed
+
+- **returncode validation**: `db_client.execute()` now checks `proc.returncode != 0` and prefixes errors with exit code, so failures no longer silently pass as success.
+- **SQL injection hardening**: Added `sql_escape()` and `sql_safe_identifier()` helpers. Applied to all table names, column names, paths, and string values in INSERT/SELECT queries across all MCP tool handlers.
+- **Embedder error propagation**: When `embedder.encode()` fails, the file now gets logged as `embedder_failed` status and the error is reported in the import summary instead of being silently swallowed.
+
+### Security
+
+- `table` and `column` identifiers now validated via `sql_safe_identifier()` (alphanumeric + underscore only)
+- String values now escaped via `sql_escape()` (single-quote doubling)
+- DB paths in `.create`/`.open` commands now quoted via `shlex.quote()`
+
 ## [0.4.10] - 2026-04-28
 
 ### Removed

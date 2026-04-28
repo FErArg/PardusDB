@@ -110,14 +110,18 @@ def generate_embedding(text: str, dim: int) -> list[float]:
     if not text or not HAS_EMBEDDER:
         return [0.0] * dim
     try:
-        vec = _embedder.encode(text, convert_to_numpy=True)
+        result = _embedder.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+        if asyncio.iscoroutine(result):
+            result = asyncio.run(result)
+        vec = result
         if vec is None:
             return [0.0] * dim
         vec = vec.tolist() if hasattr(vec, 'tolist') else list(vec)
         if len(vec) != dim:
             return [0.0] * dim
         return vec
-    except Exception:
+    except Exception as e:
+        print(f"[embedder] error generating embedding: {e}", file=sys.stderr)
         return [0.0] * dim
 
 

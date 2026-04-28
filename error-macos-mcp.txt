@@ -126,3 +126,8 @@ cp target/release/pardusdb bin/pardus-v0.4.15-darwin-arm64
 git add bin/pardus-v0.4.15-darwin-arm64
 git commit -m "chore: add macOS ARM64 binary for v0.4.15"
 git push
+
+
+
+
+./install-macos.sh: line 11: ${OS,,}-${ARCH}: bad substitution

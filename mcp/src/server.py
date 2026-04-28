@@ -178,8 +178,7 @@ def ensure_import_table(table: str, dim: int) -> None:
         doc_path TEXT,
         chunk_index INT,
         total_chunks INT,
-        title TEXT,
-        content_hash TEXT
+        title TEXT
     )"""
     db_client.execute(create_sql)
     db_client.execute(f"""CREATE TABLE IF NOT EXISTS __import_log__ (
@@ -218,19 +217,6 @@ def log_import(
 
 def is_already_imported(table: str, file_hash: str) -> bool:
     sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table}' AND file_hash = '{file_hash}'"
-    try:
-        result = db_client.execute(sql)
-        import re
-        m = re.search(r"Count:\s*(\d+)", result)
-        if m and int(m.group(1)) > 0:
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def is_content_duplicate(table: str, content_hash: str) -> bool:
-    sql = f"SELECT COUNT(*) FROM {table} WHERE content_hash = '{content_hash}' AND parent_doc_id IS NULL"
     try:
         result = db_client.execute(sql)
         import re
@@ -690,15 +676,6 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         content = parsed.get("content", "")
         pages = parsed.get("pages", [])
 
-        # Calculate content hash for deduplication
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-
-        # Skip if exact content was already imported (regardless of file)
-        if is_content_duplicate(table, content_hash):
-            stats["skipped"] += 1
-            error_details.append(f"{file_path.name}: content already imported (hash: {content_hash[:12]}...)")
-            continue
-
         # Pre-calculate sub-chunks to know actual child count
         actual_child_count = 0
         for page_data in pages:
@@ -717,9 +694,9 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             fname_esc = file_path.name.replace("'", "''")
             content_esc = content[:5000].replace("'", "''").replace("\n", " ").replace("\r", " ")
             sql = (f"INSERT INTO {table} (embedding, filename, content, page, file_type, "
-                   f"parent_doc_id, doc_path, chunk_index, total_chunks, title, content_hash) "
+                   f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
                    f"VALUES ({vec_str}, '{fname_esc}', '{content_esc}', "
-                   f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {actual_child_count}, '{title_esc}', '{content_hash}')")
+                   f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {actual_child_count}, '{title_esc}')")
             result = db_client.execute(sql)
             parent_id = parse_id_from_result(result)
 

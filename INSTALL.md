@@ -86,7 +86,7 @@ cd pardusdb
 9. Generates a wrapper script `~/.pardus/mcp/run_mcp.sh`
 10. Creates default database
 
-**Why a virtual environment?** Isolates the MCP Python package from system packages. Works alongside macOS system Python 3.9 without conflicts.
+**Why a virtual environment?** Isolates the MCP Python package and all its dependencies (including `sentence-transformers` for embeddings) from system packages. Works alongside macOS system Python 3.9 without conflicts.
 
 **MCP in OpenCode:** The wrapper script is used as the command in `opencode.json`:
 ```json

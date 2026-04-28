@@ -21,3 +21,41 @@ Opciones para instalar Python 3.10+:
   Opcion [1/2]: 1
   Instalando python@3.13 via Homebrew...
 ERROR: La instalacion de python@3.13 no actualizo python3 a 3.10+.
+
+
+
+
+./install-macos.sh
+===================================
+   PardusDB v0.4.14 Installer
+===================================
+
+ERROR: Python 3.9 detectado. El paquete MCP requiere Python 3.10+.
+
+Opciones para instalar Python 3.10+:
+  1) Instalar Python 3.13 via Homebrew (recomendado):
+       brew install python@3.13
+
+  2) Salir y resolverlo manualmente
+
+  Opcion [1/2]: 1
+  Instalando python@3.13 via Homebrew...
+ERROR: /opt/homebrew/opt/python@3.13/bin/python3 no encontrado despues de la instalacion.
+  brew install pudo haber fallado. Verifica con: brew list python@3.13
+fernando@Qatium-C6VKVF97WW pardus-rag % brew list python@3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/idle3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/pip3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/pydoc3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/python3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/python3.13-config
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/bin/wheel3.13
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/Frameworks/Python.framework/ (3082 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/IDLE 3.app/Contents/ (8 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/lib/pkgconfig/ (2 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/lib/python3.13/ (487 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/libexec/bin/ (12 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/libexec/wheel-0.47.0-py3-none-any.whl
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/Python Launcher 3.app/Contents/ (16 files)
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/sbom.spdx.json
+/opt/homebrew/Cellar/python@3.13/3.13.13_1/share/man/man1/python3.13.1
+fernando@Qatium-C6VKVF97WW pardus-rag %

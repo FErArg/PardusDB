@@ -194,9 +194,8 @@ def get_table_schema(table: str) -> dict[str, Any]:
 
 def ensure_import_table(table: str, dim: int) -> None:
     safe_table = sql_safe_identifier(table)
-    create_sql = f"CREATE TABLE {safe_table} (embedding VECTOR({dim}), filename TEXT, content TEXT, page INT, file_type TEXT, parent_doc_id INT, doc_path TEXT, chunk_index INT, total_chunks INT, title TEXT)"
-    db_client.execute(create_sql)
-    db_client.execute("CREATE TABLE __import_log__ (id INTEGER PRIMARY KEY, table_name TEXT, doc_path TEXT, filename TEXT, file_size INT, file_hash TEXT, content_hash TEXT, imported_at TEXT, total_parents INT, total_children INT, status TEXT)")
+    db_client.execute(f"CREATE TABLE IF NOT EXISTS {safe_table} (embedding VECTOR({dim}), filename TEXT, content TEXT, page INT, file_type TEXT, parent_doc_id INT, doc_path TEXT, chunk_index INT, total_chunks INT, title TEXT)")
+    db_client.execute("CREATE TABLE IF NOT EXISTS __import_log__ (id INTEGER PRIMARY KEY, table_name TEXT, doc_path TEXT, filename TEXT, file_size INT, file_hash TEXT, content_hash TEXT, imported_at TEXT, total_parents INT, total_children INT, status TEXT)")
 
 
 def log_import(
@@ -489,7 +488,7 @@ async def handle_create_table(args: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": "Error: Table name and vector_dim are required"}], "isError": True}
     try:
         safe_name = sql_safe_identifier(name)
-        columns = [f"embedding VECTOR({vector_dim})"]
+        columns = [f"embedding VECTOR({vector_dim})", "filename TEXT", "content TEXT", "page INT", "file_type TEXT", "parent_doc_id INT", "doc_path TEXT", "chunk_index INT", "total_chunks INT", "title TEXT"]
         type_map = {
             "str": "TEXT", "string": "TEXT",
             "int": "INTEGER", "integer": "INTEGER",
@@ -687,9 +686,11 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": f"Error: Directory not found: {dir_path}"}], "isError": True}
 
     try:
+        check_result = db_client.execute(f"SELECT filename, content FROM {safe_table} LIMIT 1")
+        if "Error" in check_result:
+            ensure_import_table(safe_table, vector_dim)
+    except Exception:
         ensure_import_table(safe_table, vector_dim)
-    except Exception as e:
-        return {"content": [{"type": "text", "text": f"Error creating table: {e}"}], "isError": True}
 
     all_files = []
     base_path = Path(dir_path).resolve()
@@ -797,6 +798,8 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
                          f"VALUES ({zero_vec_str}, '{fname_esc}', '{content_esc}', "
                          f"0, '{ext[1:]}', NULL, '{fpath_esc}', 0, {total_chunks}, '{title_esc}')")
             result = db_client.execute(parent_sql)
+            if "Error" in result:
+                raise Exception(f"INSERT failed: {result}")
             parent_id = parse_id_from_result(result)
             if parent_id is None:
                 parent_id = -1
@@ -811,7 +814,9 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
                              f"parent_doc_id, doc_path, chunk_index, total_chunks, title) "
                              f"VALUES ({chunk_vec_str}, '{fname_esc}', '{chunk_esc}', "
                              f"{page_num}, '{ext[1:]}', {parent_id}, '{fpath_esc}', {chunk_idx + 1}, {total_chunks}, '{title_esc}')")
-                db_client.execute(child_sql)
+                child_result = db_client.execute(child_sql)
+                if "Error" in child_result:
+                    raise Exception(f"INSERT failed: {child_result}")
 
             log_import(safe_table, fpath, file_path.name, fsize, fhash, chash, 1, total_chunks, "ok" if not embedder_failed else "embedder_failed")
             stats["imported"] += 1

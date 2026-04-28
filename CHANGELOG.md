@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **import_text auto-creates table**: `handle_import_text` now unconditionally calls `ensure_import_table()` before importing, instead of using a fragile SELECT-based existence check. `CREATE TABLE IF NOT EXISTS` is idempotent, so this is safe even if the table already exists.
+- **sentence-transformers inside venv**: On macOS, `sentence-transformers` is now installed inside `~/.pardus/mcp/venv/` instead of globally. The MCP server runs inside the venv, so dependencies must be available there for embeddings to work.
 
 ## [0.4.14] - 2026-04-28
 

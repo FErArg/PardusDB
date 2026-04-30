@@ -417,15 +417,13 @@ where
 
         // Handle reverse pruning for neighbors that exceeded max_neighbors
         // We do this in a separate pass
-        let mut to_prune: Vec<NodeId> = Vec::new();
+        let mut to_prune: HashSet<NodeId> = HashSet::new();
         for &node_id in &node_ids {
             if let Some(node) = self.nodes.get(node_id as usize) {
                 for &neighbor_id in &node.neighbors {
                     if let Some(neighbor) = self.nodes.get(neighbor_id as usize) {
                         if neighbor.neighbors.len() > max_neighbors {
-                            if !to_prune.contains(&neighbor_id) {
-                                to_prune.push(neighbor_id);
-                            }
+                            to_prune.insert(neighbor_id);
                         }
                     }
                 }

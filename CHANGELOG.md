@@ -5,6 +5,30 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.17] - 2026-05-01
+
+### Changed
+
+- **Bumped version** to 0.4.17 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
+
+### Security
+
+- **Path traversal fix in MCP server**: Added symlink resolution and directory boundary validation in `handle_import_text` to prevent reading files outside the target directory via malicious symlinks.
+
+### Fixed
+
+- **Regex match verification in MCP server**: Added `parse_count_from_result()` helper function to safely handle regex operations that could previously crash on malformed output. Fixed 6+ locations where `m.group()` was called without verifying `m` was not None.
+
+### Performance
+
+- **Python SDK `_execute()` optimization**: Eliminated unnecessary temporary file creation by piping commands directly to subprocess stdin. Removed unused `tempfile` and `json` imports.
+- **Python SDK `insert_batch()` optimization**: Rewrote to generate single multi-VALUES SQL statement instead of N individual inserts, reducing N subprocess calls to 1.
+- **Rust `graph.rs` optimization**: Changed `to_prune` from `Vec` to `HashSet` for O(1) membership testing instead of O(n) linear search.
+
+### Added
+
+- **New binary**: `bin/pardus-v0.4.17` (Linux x86_64).
+
 ## [0.4.16] - 2026-05-01
 
 ### Changed

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pardusdb
-Version: 0.4.16
+Version: 0.4.17
 Summary: Python SDK for PardusDB - A fast, SQLite-like embedded vector database
 Author-email: Pardus AI <hello@pardusai.org>
 License: MIT

@@ -186,13 +186,7 @@ def get_table_schema(table: str) -> dict[str, Any]:
         if table in result:
             schema["exists"] = True
         count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_table}")
-        try:
-            import re
-            m = re.search(r"Count:\s*(\d+)", count_result)
-            if m:
-                schema["row_count"] = int(m.group(1))
-        except Exception:
-            pass
+            schema["row_count"] = parse_count_from_result(count_result)
     except Exception:
         pass
     return schema
@@ -233,21 +227,24 @@ def is_already_imported(table: str, file_hash: str, content_hash: str) -> bool:
     sql = f"SELECT COUNT(*) FROM __import_log__ WHERE table_name = '{table_esc}' AND (file_hash = '{file_hash}' OR content_hash = '{content_hash}')"
     try:
         result = db_client.execute(sql)
-        import re
-        m = re.search(r"Count:\s*(\d+)", result)
-        if m and int(m.group(1)) > 0:
-            return True
+        return parse_count_from_result(result) > 0
     except Exception:
         pass
     return False
 
 
 def parse_id_from_result(result: str) -> Optional[int]:
-    import re
     m = re.search(r"id=(\d+)", result)
-    if m:
-        return int(m.group(1))
-    return None
+    if not m:
+        return None
+    return int(m.group(1))
+
+
+def parse_count_from_result(result: str) -> int:
+    m = re.search(r"Count:\s*(\d+)", result)
+    if not m:
+        return 0
+    return int(m.group(1))
 
 
 # ==================== File Parsers ====================
@@ -718,6 +715,17 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     imported_files = []
 
     for i, file_path in enumerate(all_files):
+        try:
+            resolved_path = file_path.resolve()
+            if not str(resolved_path).startswith(str(base_path) + os.sep):
+                stats["skipped"] += 1
+                error_details.append(f"Skipped (symlink outside base dir): {file_path.name}")
+                continue
+        except Exception:
+            stats["skipped"] += 1
+            error_details.append(f"Skipped (cannot resolve path): {file_path.name}")
+            continue
+
         fpath = str(file_path)
         fsize = 0
         try:
@@ -884,7 +892,6 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         tables_result = db_client.execute("SHOW TABLES")
-        import re
         table_names = re.findall(r"Table '(\w+)'", tables_result)
         if not table_names:
             report.append("No tables found.")
@@ -907,8 +914,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
         try:
             count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_tbl}")
-            m = re.search(r"Count:\s*(\d+)", count_result)
-            total_rows = int(m.group(1)) if m else 0
+            total_rows = parse_count_from_result(count_result)
             report.append(f"  Total records: {total_rows}")
         except Exception as e:
             report.append(f"  ⚠️  Could not count rows: {e}")
@@ -918,8 +924,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
                 f"SELECT COUNT(*) FROM {safe_tbl} WHERE parent_doc_id IS NOT NULL "
                 f"AND parent_doc_id NOT IN (SELECT id FROM {safe_tbl} WHERE parent_doc_id IS NULL)"
             )
-            m = re.search(r"Count:\s*(\d+)", orphans_result)
-            orphan_count = int(m.group(1)) if m else 0
+            orphan_count = parse_count_from_result(orphans_result)
             if orphan_count > 0:
                 report.append(f"  ❌ Orphan children found: {orphan_count}")
                 has_warnings = True
@@ -946,8 +951,7 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
             zero_result = db_client.execute(
                 f"SELECT COUNT(*) FROM {safe_tbl} WHERE embedding = '[{', '.join(['0.0'] * DEFAULT_VECTOR_DIM)}]'"
             )
-            m = re.search(r"Count:\s*(\d+)", zero_result)
-            zero_count = int(m.group(1)) if m else 0
+            zero_count = parse_count_from_result(zero_result)
             if zero_count > 0:
                 report.append(f"  ⚠️  Records with zero vectors: {zero_count}")
                 has_warnings = True
@@ -965,12 +969,10 @@ async def handle_health_check(args: dict[str, Any]) -> dict[str, Any]:
     try:
         if "__import_log__" in table_names:
             log_count = db_client.execute("SELECT COUNT(*) FROM __import_log__")
-            m = re.search(r"Count:\s*(\d+)", log_count)
-            log_rows = int(m.group(1)) if m else 0
+            log_rows = parse_count_from_result(log_count)
             report.append(f"Import Log: {log_rows} entries")
             ok_count_result = db_client.execute("SELECT COUNT(*) FROM __import_log__ WHERE status = 'ok'")
-            m2 = re.search(r"Count:\s*(\d+)", ok_count_result)
-            ok_rows = int(m2.group(1)) if m2 else 0
+            ok_rows = parse_count_from_result(ok_count_result)
             report.append(f"  Successful imports: {ok_rows}")
         else:
             report.append("Import Log: not found")
@@ -996,9 +998,7 @@ async def handle_get_schema(args: dict[str, Any]) -> dict[str, Any]:
             return {"content": [{"type": "text", "text": f"Table '{table}' does not exist"}], "isError": True}
 
         count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_table}")
-        import re
-        m = re.search(r"Count:\s*(\d+)", count_result)
-        row_count = int(m.group(1)) if m else 0
+        row_count = parse_count_from_result(count_result)
 
         output = [f"Schema for table: {table}", f"Total rows: {row_count}", ""]
 
@@ -1244,7 +1244,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.16")
+server = Server("pardusdb-mcp", "0.4.17")
 
 
 @server.list_tools()

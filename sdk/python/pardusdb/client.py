@@ -7,9 +7,7 @@ Provides a simple, Pythonic interface for vector database operations.
 from __future__ import annotations
 
 import subprocess
-import json
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -99,24 +97,15 @@ class PardusDB:
     def _execute(self, command: str) -> str:
         """Execute a command and return the output."""
         try:
-            # Create a temp file with the command
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as f:
-                f.write(command + "\n")
-                f.write("quit\n")
-                temp_path = f.name
-
-            try:
-                db_arg = str(self.path) if self.path else ""
-                result = subprocess.run(
-                    [self._binary_path, db_arg],
-                    stdin=open(temp_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                return result.stdout + result.stderr
-            finally:
-                os.unlink(temp_path)
+            db_arg = str(self.path) if self.path else ""
+            result = subprocess.run(
+                [self._binary_path, db_arg],
+                input=f"{command}\nquit\n",
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return result.stdout + result.stderr
 
         except subprocess.TimeoutExpired:
             raise QueryError("Query timed out", command)
@@ -319,12 +308,39 @@ class PardusDB:
         if metadata_list and len(vectors) != len(metadata_list):
             raise ValueError("Number of vectors and metadata must match")
 
-        ids = []
-        for i, vector in enumerate(vectors):
-            metadata = metadata_list[i] if metadata_list else None
-            row_id = self.insert(vector, metadata, table_name)
-            ids.append(row_id)
+        if not vectors:
+            return []
 
+        value_rows = []
+        for i, vector in enumerate(vectors):
+            vector_str = "[" + ", ".join(str(x) for x in vector) + "]"
+            metadata = metadata_list[i] if metadata_list else None
+
+            if metadata:
+                columns = ["embedding"]
+                values = [vector_str]
+                for key, val in metadata.items():
+                    columns.append(key)
+                    if isinstance(val, str):
+                        values.append(f"'{val}'")
+                    elif isinstance(val, bool):
+                        values.append("true" if val else "false")
+                    else:
+                        values.append(str(val))
+                value_rows.append(f"({', '.join(values)})")
+            else:
+                value_rows.append(f"({vector_str})")
+
+        sql = f"INSERT INTO {table_name} VALUES {', '.join(value_rows)}"
+        result = self._execute(sql)
+
+        ids = []
+        for line in result.split("\n"):
+            if "id=" in line:
+                try:
+                    ids.append(int(line.split("id=")[1].split()[0]))
+                except (IndexError, ValueError):
+                    pass
         return ids
 
     # ==================== Search Operations ====================

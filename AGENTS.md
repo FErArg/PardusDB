@@ -31,4 +31,14 @@
 
 - Version strings that affect shipped artifacts are duplicated in `Cargo.toml`, `mcp/src/server.py`, `sdk/python/pyproject.toml`, `sdk/typescript/pardusdb/package.json`, `setup.sh`, `install.sh`, and `install-macos.sh`.
 - `README.md` and `INSTALL.md` also hardcode the current version and versioned binary filenames; update them in the same release change.
-- Current repo mismatch: `sdk/python/pardusdb/__init__.py` still reports `__version__ = "0.1.0"` while the package metadata is `0.4.15`.
+- **Binary naming convention**: Precompiled binaries in `bin/` must follow the format `pardus-v{VERSION}-{platform}-{arch}` where:
+  - `VERSION` is the semantic version (e.g., `0.4.17`)
+  - `platform` is lowercase OS name (e.g., `linux`, `darwin`)
+  - `arch` is the architecture (e.g., `x86_64`, `arm64`)
+  - Examples: `pardus-v0.4.17-linux-x86_64`, `pardus-v0.4.17-darwin-arm64`
+- When compiling a new release:
+  1. Run `cargo build --release`
+  2. Copy the binary: `cp target/release/pardusdb bin/pardus-v{VERSION}-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)`
+  3. Update version numbers in all files listed above
+  4. Commit and push before running installers
+- **Installer requirement**: `install.sh` requires the binary at `bin/pardus-v{VERSION}-linux-x86_64`. If missing, it will fail with "Binario precompilado no encontrado".

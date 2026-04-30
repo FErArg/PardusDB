@@ -29,7 +29,7 @@ The default database `~/.pardus/pardus-rag.db` is auto-created after installatio
 ### Option 1: setup.sh — Build from source (requires Rust)
 
 ```bash
-git clone https://github.com/pardus-ai/pardusdb
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./setup.sh --install
 ```
@@ -37,7 +37,7 @@ cd pardusdb
 **What it does:**
 1. Checks for Rust/Cargo (installs via rustup.rs if missing)
 2. Compiles `pardusdb` with `cargo build --release`
-3. Saves the compiled binary to `bin/pardus-v0.4.15-{platform}-{arch}` for future use
+3. Saves the compiled binary to `bin/pardus-v0.4.16-{platform}-{arch}` for future use
 4. Installs the binary, helper, MCP server, config, Python SDK
 5. Creates default database
 
@@ -48,17 +48,17 @@ cd pardusdb
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone https://github.com/pardus-ai/pardusdb
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./install.sh --install
 ```
 
 **What it does:**
-1. Copies the precompiled binary from `bin/pardus-v0.4.15-linux-x86_64` to `~/.local/bin/pardusdb`
+1. Copies the precompiled binary from `bin/pardus-v0.4.16-linux-x86_64` to `~/.local/bin/pardusdb`
 2. Installs the helper, MCP server, config, Python SDK
 3. Creates default database
 
-**Important:** `install.sh` does **not** compile anything. It needs a pre-existing binary at `bin/pardus-v0.4.15-linux-x86_64`. If you modified Rust source code, run `cargo build --release` first or use `setup.sh`.
+**Important:** `install.sh` does **not** compile anything. It needs a pre-existing binary at `bin/pardus-v0.4.16-linux-x86_64`. If you modified Rust source code, run `cargo build --release` first or use `setup.sh`.
 
 **Use this when:** You just want to install quickly, don't have Rust, or are deploying from a release tarball.
 
@@ -69,7 +69,7 @@ cd pardusdb
 ### Option 3: install-macos.sh — macOS with virtual environment (auto-installs Python 3.10+ if needed)
 
 ```bash
-git clone https://github.com/pardus-ai/pardusdb
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./install-macos.sh --install
 ```
@@ -78,7 +78,7 @@ cd pardusdb
 1. Checks for Python 3.10+ (required by the `mcp` Python package)
 2. If Python < 3.10 is detected and Homebrew is available: offers to install Python 3.13 via `brew install python@3.13`
 3. If Python < 3.10 and no Homebrew: shows instructions and exits
-4. Requires `bin/pardus-v0.4.15-darwin-arm64` in the repo — if missing, compile on your Mac with `cargo build --release` and copy to `bin/pardus-v0.4.15-darwin-arm64`
+4. Requires `bin/pardus-v0.4.16-darwin-arm64` in the repo — if missing, compile on your Mac with `cargo build --release` and copy to `bin/pardus-v0.4.16-darwin-arm64`
 5. Copies the precompiled binary to `~/.local/bin/pardusdb`
 6. Installs the helper, MCP server, config
 7. Creates a Python virtual environment at `~/.pardus/mcp/venv/`

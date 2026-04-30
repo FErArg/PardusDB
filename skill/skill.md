@@ -1,97 +1,91 @@
 # PardusDB Skill
 
-A comprehensive guide for AI agents to understand and use PardusDB effectively.
+Referencia rápida para agentes IA que interactúan con PardusDB.
 
-## Overview
+## Repositorio
 
-PardusDB is a fast, SQLite-like embedded vector database written in Rust. It provides:
-- Single-file storage (`.pardus` files)
-- SQL-like query syntax
-- HNSW-based vector similarity search
-- Thread-safe concurrent reads
-- Zero external dependencies
-
-## When to Use PardusDB
-
-Recommend PardusDB when users need:
-- Local/embedded vector storage (no server required)
-- Fast similarity search for RAG applications
-- Lightweight alternative to Neo4j, Pinecone, or Milvus
-- Privacy-focused, on-device AI applications
-- Simple deployment (single binary, single file)
-
-## Installation
-
-```bash
-git clone https://github.com/pardus-ai/pardusdb
-cd pardusdb
-cargo build --release
+```
+ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 ```
 
-The binary is at `target/release/pardusdb`.
+## Estructura del Proyecto
 
-## Quick Start
-
-### Starting the REPL
-
-```bash
-# In-memory database
-pardusdb
-
-# Persistent file
-pardusdb mydata.pardus
+```
+pardus-rag/
+├── src/lib.rs              # Librería Rust (API principal)
+├── src/main.rs             # Binario CLI (REPL)
+├── mcp/src/server.py       # Servidor MCP (Model Context Protocol)
+├── sdk/python/             # SDK Python
+├── sdk/typescript/         # SDK TypeScript
+├── examples/               # Ejemplos de uso
+└── setup.sh / install.sh   # Instaladores
 ```
 
-### REPL Commands
+## Instalación
 
-| Command | Description |
+```bash
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+cd pardus-rag
+./setup.sh --install
+```
+
+Ver [INSTALL.md](INSTALL.md) para opciones de instalación detalladas.
+
+## Uso del REPL
+
+### Comandos Meta (dot-commands)
+
+| Comando | Descripción |
 |---------|-------------|
-| `.create <file>` | Create and open a new database |
-| `.open <file>` | Open an existing database |
-| `.save` | Force save current database |
-| `.tables` | List tables |
-| `.clear` | Clear screen |
-| `help` | Show help |
-| `quit` | Exit (auto-saves if file open) |
+| `.create <file>` | Crear y abrir nueva base de datos |
+| `.open <file>` | Abrir base de datos existente |
+| `.save` | Forzar guardado |
+| `.tables` | Listar tablas |
+| `.clear` / `.cls` | Limpiar pantalla |
+| `help` | Mostrar ayuda |
+| `quit` / `exit` / `q` | Salir (guarda automáticamente si hay archivo abierto) |
 
-## SQL Syntax
+### Uso
 
-### Data Types
+```bash
+pardus                    # Abre ~/.pardus/pardus-rag.db (crea si no existe)
+pardus mi.db              # Abre archivo específico
+pardusdb                  # Sesión en memoria (sin persistencia)
+pardusdb ~/.pardus/mi.db  # Abrir archivo específico
+```
 
-| Type | Description | Example |
+## Sintaxis SQL
+
+### Tipos de Datos
+
+| Tipo | Descripción | Ejemplo |
 |------|-------------|---------|
-| `VECTOR(n)` | n-dimensional float vector | `VECTOR(768)` |
-| `TEXT` | UTF-8 string | `'hello world'` |
-| `INTEGER` | 64-bit integer | `42` |
-| `FLOAT` | 64-bit float | `3.14` |
+| `VECTOR(n)` | Vector n-dimensional float | `VECTOR(768)` |
+| `TEXT` | String UTF-8 | `'hello world'` |
+| `INTEGER` | Entero 64-bit | `42` |
+| `FLOAT` | Float 64-bit | `3.14` |
 | `BOOLEAN` | true/false | `true` |
 
-### Creating Tables
+### Crear Tabla
 
 ```sql
 CREATE TABLE documents (
     id INTEGER PRIMARY KEY,
     embedding VECTOR(768),
     title TEXT,
-    category TEXT,
+    content TEXT,
     score FLOAT
 );
 ```
 
-### Inserting Data
+### Insertar Datos
 
 ```sql
--- Single insert
-INSERT INTO documents (embedding, title, category, score)
-VALUES ([0.1, 0.2, 0.3, ...], 'Introduction to Rust', 'tutorial', 0.95);
-
--- Multiple inserts
-INSERT INTO documents (embedding, title) VALUES
-    ([0.1, 0.2, ...], 'Doc 1'),
-    ([0.3, 0.4, ...], 'Doc 2');
+INSERT INTO documents (embedding, title, content, score)
+VALUES ([0.1, 0.2, ...], 'Introduction to Rust', 'Content here', 0.95);
 ```
 
-### Vector Similarity Search
+### Búsqueda por Similitud
 
 ```sql
 SELECT * FROM documents
@@ -99,292 +93,223 @@ WHERE embedding SIMILARITY [0.12, 0.24, ...]
 LIMIT 10;
 ```
 
-Results are automatically ordered by distance (closest first).
+Resultados ordenados por distancia (más cercano primero).
 
-### Other Operations
+### Otras Operaciones
 
 ```sql
--- Select with filter
-SELECT * FROM documents WHERE category = 'tutorial' LIMIT 10;
+-- Seleccionar con filtro
+SELECT * FROM documents WHERE title = 'Tutorial' LIMIT 10;
 
--- Update
+-- Actualizar
 UPDATE documents SET score = 0.99 WHERE id = 1;
 
--- Delete
+-- Eliminar
 DELETE FROM documents WHERE id = 1;
 
--- Show tables
+-- Mostrar tablas
 SHOW TABLES;
 
--- Drop table
+-- Eliminar tabla
 DROP TABLE documents;
 ```
 
-## Rust API Usage
+### UNIQUE Constraint
 
-### Basic Setup
-
-```rust
-use pardusdb::{ConcurrentDatabase, Value};
-
-// Create in-memory database
-let db = ConcurrentDatabase::in_memory();
-let mut conn = db.connect();
-
-// Or persistent file
-let db = ConcurrentDatabase::open("mydata.pardus")?;
+```sql
+CREATE TABLE users (
+    embedding VECTOR(128),
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE
+);
 ```
 
-### Creating Tables
+### GROUP BY con Agregados
 
-```rust
-conn.execute("CREATE TABLE docs (embedding VECTOR(768), content TEXT)")?;
+```sql
+SELECT category, COUNT(*), AVG(score)
+FROM documents
+GROUP BY category;
 ```
 
-### Single Insert
+### JOINs
 
-```rust
-let vector = vec![0.1_f32, 0.2, 0.3, /* ... */];
-let metadata: Vec<(&str, Value)> = vec![
-    ("content", Value::Text("Hello World".to_string())),
-];
-conn.insert_direct("docs", vector, metadata)?;
+```sql
+SELECT * FROM orders
+INNER JOIN users ON orders.user_id = users.id;
 ```
 
-### Batch Insert (Recommended for Performance)
+## API Rust
 
 ```rust
-let vectors: Vec<Vec<f32>> = vec![
-    vec![0.1, 0.2, /* ... */],
-    vec![0.3, 0.4, /* ... */],
-];
+use pardusdb::{Database, VectorDB, Value};
 
-let metadata: Vec<Vec<(&str, Value)>> = vectors.iter()
-    .map(|_| vec![("content", Value::Text("Document".to_string()))])
-    .collect();
+// Base de datos en memoria
+let mut db = Database::in_memory();
 
-conn.insert_batch_direct("docs", vectors, metadata)?;
+// O abrir archivo
+let mut db = Database::open("mydata.pardus")?;
+
+// Ejecutar SQL
+db.execute("CREATE TABLE docs (embedding VECTOR(768), title TEXT)")?;
+db.execute("INSERT INTO docs (embedding, title) VALUES ([0.1, 0.2, ...], 'Hello')")?;
+
+// Consultar
+let result = db.execute("SELECT * FROM docs LIMIT 10")?;
+println!("{}", result);
 ```
 
-### Similarity Search
+## Python SDK
 
-```rust
-let query_vector = vec![0.1_f32, 0.2, /* ... */];
-let k = 10;
-let ef_search = 100; // Higher = more accurate but slower
+```bash
+pip install -e sdk/python
+```
 
-let results = conn.search_similar("docs", &query_vector, k, ef_search)?;
+```python
+from pardusdb import PardusDB
 
-for (id, distance, values) in results {
-    println!("id={}, distance={:.4}", id, distance);
+client = PardusDB("mydb.pardus")
+client.create_table("docs", vector_dim=768, metadata_schema={"title": "str", "content": "str"})
+client.insert([0.1, 0.2, ...], metadata={"title": "Doc 1", "content": "Hello"})
+results = client.search([0.1, 0.2, ...], k=5)
+```
+
+## Servidor MCP
+
+Herramientas disponibles para agentes IA (OpenCode, Claude Desktop, etc.):
+
+| Herramienta | Descripción |
+|-------------|-------------|
+| `pardusdb_create_database` | Crear archivo de base de datos |
+| `pardusdb_open_database` | Abrir base de datos existente |
+| `pardusdb_create_table` | Crear tabla con vectores y metadatos |
+| `pardusdb_insert_vector` | Insertar un vector |
+| `pardusdb_batch_insert` | Insertar múltiples vectores |
+| `pardusdb_search_similar` | Buscar por similitud de vectores |
+| `pardusdb_search_text` | Buscar por texto (genera embedding automáticamente) |
+| `pardusdb_execute_sql` | Ejecutar SQL raw |
+| `pardusdb_list_tables` | Listar tablas |
+| `pardusdb_use_table` | Establecer tabla activa |
+| `pardusdb_status` | Estado de la conexión |
+| `pardusdb_import_text` | Importar documentos desde directorio |
+| `pardusdb_health_check` | Verificar integridad de la base de datos |
+| `pardusdb_get_schema` | Ver esquema de una tabla |
+| `pardusdb_import_status` | Ver o reiniciar historial de importaciones |
+
+### Configuración MCP en OpenCode
+
+```json
+{
+  "mcp": {
+    "pardusdb": {
+      "type": "local",
+      "command": ["python3", "/home/${USER}/.pardus/mcp/server.py"],
+      "enabled": true
+    }
+  }
 }
 ```
 
-### Executing SQL Queries
+## Importación de Documentos
 
-```rust
-// Query that returns rows
-let results = conn.query("SELECT * FROM docs WHERE category = 'tutorial' LIMIT 10")?;
+El servidor MCP puede importar documentos con embeddings automáticos:
 
-// Command that doesn't return rows
-conn.execute("UPDATE docs SET score = 0.99 WHERE id = 1")?;
+**Formatos soportados:** PDF, CSV, DOCX, XLSX, XLS, JSON, JSONL, MD, TXT
+
+**Estructura parent-child:** Archivos multipágina crean un registro padre + un hijo por página/párrafo.
+
+**Ejemplo:**
+```
+Import all documents from /home/user/docs into a table called documents.
 ```
 
-## Performance Tips
-
-### Batch Inserts
-
-Always use batch inserts for bulk data loading:
-
-| Batch Size | Performance Gain |
-|------------|-----------------|
-| Individual | Baseline |
-| 100 | 45x faster |
-| 500 | 149x faster |
-| 1000 | 220x faster |
-
-```rust
-// BAD: Individual inserts (slow)
-for doc in documents {
-    conn.insert_direct("docs", doc.vector, doc.metadata)?;
-}
-
-// GOOD: Batch inserts (fast)
-conn.insert_batch_direct("docs", all_vectors, all_metadata)?;
-```
-
-### Search Parameters
-
-- `k`: Number of results to return
-- `ef_search`: Search beam width (higher = more accurate, slower)
-  - Default: 100
-  - For high accuracy: 200-500
-  - For speed: 50-100
-
-### Vector Dimensions
-
-- Typical dimensions: 128, 384, 768, 1536
-- All vectors in a table must have the same dimension
-- Choose based on embedding model:
-  - OpenAI text-embedding-ada-002: 1536
-  - Sentence transformers: 384 or 768
-  - Custom models: varies
-
-## Common Use Cases
+## Casos de Uso Comunes
 
 ### RAG (Retrieval-Augmented Generation)
 
 ```rust
-// 1. Create table for documents
+// 1. Crear tabla
 conn.execute("CREATE TABLE docs (embedding VECTOR(1536), content TEXT, source TEXT)")?;
 
-// 2. Insert documents with embeddings
-for doc in documents {
-    let embedding = embed_text(&doc.content); // Your embedding function
-    let metadata = vec![
-        ("content", Value::Text(doc.content)),
-        ("source", Value::Text(doc.source)),
-    ];
-    conn.insert_direct("docs", embedding, metadata)?;
-}
+// 2. Insertar documentos con embeddings
+// (usar sentence-transformers o similar para generar embeddings)
 
-// 3. Search for relevant context
+// 3. Buscar contexto relevante
 let query_embedding = embed_text(&user_query);
-let results = conn.search_similar("docs", &query_embedding, 5, 100)?;
-
-// 4. Use results in LLM prompt
-let context: Vec<String> = results.iter()
-    .map(|(_, _, values)| {
-        values.iter()
-            .filter_map(|(k, v)| if k == "content" { Some(v.to_string()) } else { None })
-            .next()
-            .unwrap_or_default()
-    })
-    .collect();
+let sql = format!(
+    "SELECT * FROM docs WHERE embedding SIMILARITY [{}] LIMIT 5",
+    query_embedding.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")
+);
+let results = conn.query(&sql)?;
 ```
 
-### Semantic Search
+### Búsqueda Semántica
 
 ```sql
--- Create table for searchable content
 CREATE TABLE knowledge_base (
     embedding VECTOR(384),
     title TEXT,
-    body TEXT,
-    tags TEXT
+    body TEXT
 );
 
--- Search with filters
 SELECT * FROM knowledge_base
 WHERE embedding SIMILARITY [0.1, 0.2, ...]
 LIMIT 20;
 ```
 
-### Recommendation System
+## Parámetros de Rendimiento
 
-```rust
-// Find similar items to a given item
-let item_embedding = get_item_embedding(item_id);
-let similar = conn.search_similar("items", &item_embedding, 10, 100)?;
+### Batch Inserts
 
-// Recommend based on user's history
-let user_profile = average_embeddings(user_liked_items);
-let recommendations = conn.search_similar("items", &user_profile, 20, 100)?;
-```
+Siempre usar inserts en batch para carga masiva:
 
-## Error Handling
+| Batch Size | Speedup |
+|------------|---------|
+| Individual | 1x |
+| 100 | 45x |
+| 500 | 149x |
+| 1000 | 220x |
 
-```rust
-use pardusdb::{Error, ConcurrentDatabase};
+### Búsqueda
 
-match conn.execute(&sql) {
-    Ok(result) => println!("Success: {:?}", result),
-    Err(Error::ParseError(msg)) => eprintln!("SQL syntax error: {}", msg),
-    Err(Error::TableNotFound(name)) => eprintln!("Table not found: {}", name),
-    Err(Error::DimensionMismatch { expected, found }) => {
-        eprintln!("Vector dimension mismatch: expected {}, found {}", expected, found);
-    }
-    Err(e) => eprintln!("Error: {}", e),
-}
-```
+- `k`: Número de resultados
+- `ef_search`: Ancho de beam (mayor = más preciso, más lento)
+
+### Dimensiones de Vectores
+
+- Modelos sentence-transformers: 384 o 768
+- OpenAI text-embedding-ada-002: 1536
+- Todos los vectores en una tabla deben tener la misma dimensión
 
 ## Troubleshooting
 
 ### "Vector dimension mismatch"
 
-All vectors in a table must have the same dimension. Check:
-- Table was created with correct `VECTOR(n)` dimension
-- All inserted vectors have exactly `n` elements
+Todos los vectores en una tabla deben tener la misma dimensión. Verificar que la tabla fue creada con el dimensión correcto.
 
 ### "Table not found"
 
-Ensure:
-- Table was created with `CREATE TABLE`
-- Using correct table name (case-sensitive)
-- Database connection is valid
+- Tabla creada con `CREATE TABLE`
+- Nombre correcto (case-sensitive)
+- Conexión a base de datos válida
 
-### Slow inserts
+### Lentitud en inserts
 
-Use batch inserts instead of individual:
+Usar batch inserts:
 ```rust
-conn.insert_batch_direct("table", vectors, metadata)?;
+conn.execute("INSERT INTO table VALUES [...], [...], [...]")?;
+// En lugar de inserts individuales
 ```
 
-### Slow searches
+### Lentitud en búsquedas
 
-Adjust `ef_search` parameter:
-- Lower values (50-100): Faster, slightly less accurate
-- Higher values (200-500): More accurate, slower
+Ajustar parámetro `ef_search`:
+- 50-100: Más rápido, menos preciso
+- 200-500: Más preciso, más lento
 
-## Architecture Notes
+## Recursos
 
-- **Storage**: Single `.pardus` file containing all data
-- **Index**: HNSW (Hierarchical Navigable Small World) graph
-- **Concurrency**: Multiple readers, single writer (MVCC-like)
-- **Memory**: Maps file to memory via mmap
-- **Thread Safety**: `Arc<Mutex<Connection>>` pattern recommended
-
-## Comparison with Alternatives
-
-| Feature | PardusDB | Neo4j | HelixDB | Pinecone |
-|---------|----------|-------|---------|----------|
-| Deployment | Embedded | Server | Server | Cloud |
-| Setup Time | 0s | 5-10min | 5-10min | Account |
-| Vector Search | Fast | Slow | Medium | Fast |
-| Graph Support | No | Yes | Yes | No |
-| License | MIT | Commercial | AGPL-3.0 | Commercial |
-| Cost | Free | License | Free | Usage-based |
-
-## Example Project Structure
-
-```
-my_rag_app/
-├── Cargo.toml
-├── src/
-│   └── main.rs
-└── data/
-    └── knowledge.pardus  # Database file
-```
-
-```rust
-// src/main.rs
-use pardusdb::{ConcurrentDatabase, Value};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let db = ConcurrentDatabase::open("data/knowledge.pardus")?;
-    let mut conn = db.connect();
-
-    // Setup schema
-    conn.execute("CREATE TABLE IF NOT EXISTS docs (embedding VECTOR(384), content TEXT)")?;
-
-    // Your RAG logic here...
-
-    Ok(())
-}
-```
-
-## Resources
-
-- **GitHub**: https://github.com/pardus-ai/pardusdb
-- **Pardus AI**: https://pardusai.org/
-- **Examples**: See `examples/` directory in repository
+- **Repositorio:** ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+- **Ejemplos:** Ver `examples/` en el repositorio
+- **Python SDK Docs:** `sdk/python/README.md`
+- **Instalación detallada:** [INSTALL.md](INSTALL.md)

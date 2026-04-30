@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pardusdb"
-version = "0.4.15"
+version = "0.4.16"
 description = "Python SDK for PardusDB - A fast, SQLite-like embedded vector database"
 readme = "README.md"
 license = {text = "MIT"}
@@ -34,9 +34,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pardus-ai/pardusdb"
-Documentation = "https://github.com/pardus-ai/pardusdb#readme"
-Repository = "https://github.com/pardus-ai/pardusdb"
+Homepage = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git"
+Documentation = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git#readme"
+Repository = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git"
 
 [tool.setuptools.packages.find]
 where = ["."]

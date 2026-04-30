@@ -5,6 +5,28 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.16] - 2026-05-01
+
+### Changed
+
+- **Bumped version** to 0.4.16 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
+- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git` across all documentation and configuration files.
+
+### Fixed
+
+- **skill.md reescrito**: Corregida información desactualizada con:
+  - URL correcta del repositorio
+  - Comandos REPL correctos (`.create`, `.open`, `.save`, `.tables`, `.clear`, `.cls`)
+  - Alias documentados (`quit` / `exit` / `q`)
+  - API Rust correcta (`execute`, `query`)
+  - Python SDK documentado (`create_table`, `insert`, `search`)
+  - 15 herramientas MCP completas incluyendo `pardusdb_import_status`
+
+### Added
+
+- **`pardusdb_import_status`**: Nueva herramienta MCP para ver y reiniciar historial de importaciones.
+- **Nuevo binario compilado**: `bin/pardus-v0.4.16` (Linux x86_64).
+
 ## [0.4.15] - 2026-04-28
 
 ### Changed

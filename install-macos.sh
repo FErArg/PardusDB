@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.4.15"
+VERSION="0.4.16"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 OS=$(uname -s)

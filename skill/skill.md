@@ -141,22 +141,36 @@ INNER JOIN users ON orders.user_id = users.id;
 
 ## API Rust
 
-```rust
-use pardusdb::{Database, VectorDB, Value};
+PardusDB tiene dos niveles de API:
 
-// Base de datos en memoria
+### API de Alto Nivel (SQL)
+
+```rust
+use pardusdb::{Database, Value};
+
 let mut db = Database::in_memory();
 
-// O abrir archivo
-let mut db = Database::open("mydata.pardus")?;
-
-// Ejecutar SQL
+// Ejecutar SQL (CREATE, INSERT, SELECT, etc.)
 db.execute("CREATE TABLE docs (embedding VECTOR(768), title TEXT)")?;
 db.execute("INSERT INTO docs (embedding, title) VALUES ([0.1, 0.2, ...], 'Hello')")?;
 
 // Consultar
 let result = db.execute("SELECT * FROM docs LIMIT 10")?;
 println!("{}", result);
+```
+
+### API de Bajo Nivel (Vectores)
+
+```rust
+use pardusdb::{VectorDB, EuclideanDB};
+
+let db: EuclideanDB<f32> = VectorDB::in_memory(2);
+
+db.insert(vec![0.0, 0.0])?;
+db.insert(vec![1.0, 1.0])?;
+
+// Búsqueda vectorial
+let results = db.query(&[0.5, 0.5], 2)?;
 ```
 
 ## Python SDK
@@ -228,19 +242,37 @@ Import all documents from /home/user/docs into a table called documents.
 ### RAG (Retrieval-Augmented Generation)
 
 ```rust
-// 1. Crear tabla
-conn.execute("CREATE TABLE docs (embedding VECTOR(1536), content TEXT, source TEXT)")?;
+use pardusdb::{Database, VectorDB, EuclideanDB};
 
-// 2. Insertar documentos con embeddings
+// 1. Crear base de datos y tabla
+let mut db = Database::in_memory();
+db.execute("CREATE TABLE docs (embedding VECTOR(1536), content TEXT, source TEXT)")?;
+
+// 2. Insertar documentos con embeddings generados externamente
 // (usar sentence-transformers o similar para generar embeddings)
+let embedding = generate_embedding("texto del documento");
+db.execute("INSERT INTO docs (embedding, content) VALUES ([...], 'contenido')")?;
 
-// 3. Buscar contexto relevante
-let query_embedding = embed_text(&user_query);
-let sql = format!(
-    "SELECT * FROM docs WHERE embedding SIMILARITY [{}] LIMIT 5",
-    query_embedding.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")
-);
-let results = conn.query(&sql)?;
+// 3. Buscar contexto relevante (usando API de bajo nivel)
+let db_vec: EuclideanDB<f32> = VectorDB::in_memory(1536);
+// Insertar vectores en el Graph para búsqueda
+db_vec.insert(embedding)?;
+
+let results = db_vec.query(&query_embedding, 5)?;
+```
+
+**O usando SQL directamente:**
+```rust
+// Crear tabla con dimensión adecuada
+db.execute("CREATE TABLE docs (embedding VECTOR(384), content TEXT)")?;
+
+// Insertar con embedding
+db.execute("INSERT INTO docs (embedding, content) VALUES ([0.1, 0.2, ...], 'texto')")?;
+
+// Buscar similaridad
+let results = db.execute(
+    "SELECT * FROM docs WHERE embedding SIMILARITY [0.1, 0.2, ...] LIMIT 5"
+)?;
 ```
 
 ### Búsqueda Semántica
@@ -295,10 +327,25 @@ Todos los vectores en una tabla deben tener la misma dimensión. Verificar que l
 
 ### Lentitud en inserts
 
-Usar batch inserts:
+Usar inserts en batch es más rápido, pero cada INSERT es una fila:
+
+```sql
+-- Un INSERT por fila (el parser no soporta multi-VALUE)
+INSERT INTO docs (embedding, title) VALUES ([0.1, 0.2, ...], 'Doc 1');
+INSERT INTO docs (embedding, title) VALUES ([0.3, 0.4, ...], 'Doc 2');
+INSERT INTO docs (embedding, title) VALUES ([0.5, 0.6, ...], 'Doc 3');
+```
+
+**En código Rust:**
 ```rust
-conn.execute("INSERT INTO table VALUES [...], [...], [...]")?;
-// En lugar de inserts individuales
+// Cada execute() es un INSERT individual
+for doc in documents {
+    db.execute(&format!(
+        "INSERT INTO docs (embedding, content) VALUES ([{}], '{}')",
+        doc.embedding.iter().join(", "),
+        doc.content
+    ))?;
+}
 ```
 
 ### Lentitud en búsquedas

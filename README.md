@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.18-blue.svg)](ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git)
+[![Version](https://img.shields.io/badge/version-0.4.18-blue.svg)](https://github.com/FErArg/PardusDB)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
@@ -42,7 +42,7 @@ Two installers are provided. Both install the binary, helper script, MCP server,
 ### Option 1: setup.sh — Build from source (requires Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./setup.sh --install
 ```
@@ -52,7 +52,7 @@ Compiles `pardusdb` from Rust source with `cargo build --release`. Use this if y
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./install.sh --install
 ```
@@ -62,7 +62,7 @@ Copies the precompiled binary from `bin/pardus-v0.4.18-linux-x86_64` to `~/.loca
 ### Option 3: install-macos.sh — macOS with venv-based MCP (auto-installs Python 3.10+ if needed)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./install-macos.sh --install
 ```

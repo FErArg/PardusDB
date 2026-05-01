@@ -5,7 +5,7 @@ Referencia rápida para agentes IA que interactúan con PardusDB.
 ## Repositorio
 
 ```
-ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+https://github.com/FErArg/PardusDB
 ```
 
 ## Estructura del Proyecto
@@ -24,7 +24,7 @@ pardus-rag/
 ## Instalación
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardus-rag
 ./setup.sh --install
 ```
@@ -356,7 +356,7 @@ Ajustar parámetro `ef_search`:
 
 ## Recursos
 
-- **Repositorio:** ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+- **Repositorio:** https://github.com/FErArg/PardusDB
 - **Ejemplos:** Ver `examples/` en el repositorio
 - **Python SDK Docs:** `sdk/python/README.md`
 - **Instalación detallada:** [INSTALL.md](INSTALL.md)

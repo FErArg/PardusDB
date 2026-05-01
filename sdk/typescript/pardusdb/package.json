@@ -28,13 +28,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git",
+    "url": "https://github.com/FErArg/PardusDB",
     "directory": "sdk/typescript/pardusdb"
   },
   "bugs": {
-    "url": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git/issues"
+    "url": "https://github.com/FErArg/PardusDB/issues"
   },
-  "homepage": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git#readme",
+  "homepage": "https://github.com/FErArg/PardusDB#readme",
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",

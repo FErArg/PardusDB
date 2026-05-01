@@ -29,7 +29,7 @@ The default database `~/.pardus/pardus-rag.db` is auto-created after installatio
 ### Option 1: setup.sh — Build from source (requires Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./setup.sh --install
 ```
@@ -48,7 +48,7 @@ cd pardusdb
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./install.sh --install
 ```
@@ -69,7 +69,7 @@ cd pardusdb
 ### Option 3: install-macos.sh — macOS with virtual environment (auto-installs Python 3.10+ if needed)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB.git
 cd pardusdb
 ./install-macos.sh --install
 ```

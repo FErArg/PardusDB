@@ -34,9 +34,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git"
-Documentation = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git#readme"
-Repository = "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git"
+Homepage = "https://github.com/FErArg/PardusDB"
+Documentation = "https://github.com/FErArg/PardusDB#readme"
+Repository = "https://github.com/FErArg/PardusDB"
 
 [tool.setuptools.packages.find]
 where = ["."]

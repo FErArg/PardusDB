@@ -186,7 +186,7 @@ def get_table_schema(table: str) -> dict[str, Any]:
         if table in result:
             schema["exists"] = True
         count_result = db_client.execute(f"SELECT COUNT(*) FROM {safe_table}")
-            schema["row_count"] = parse_count_from_result(count_result)
+        schema["row_count"] = parse_count_from_result(count_result)
     except Exception:
         pass
     return schema
@@ -1244,7 +1244,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.17")
+server = Server("pardusdb-mcp", "0.4.18")
 
 
 @server.list_tools()

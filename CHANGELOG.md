@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Bumped version** to 0.4.16 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
-- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git` across all documentation and configuration files.
+- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `https://github.com/FErArg/PardusDB` across all documentation and configuration files.
 
 ### Fixed
 

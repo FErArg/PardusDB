@@ -268,16 +268,23 @@ install_document_dependencies() {
         return
     fi
 
-    pip3 install pypdf --quiet 2>/dev/null || pip3 install pypdf --quiet --break-system-packages 2>/dev/null
+    local doc_deps_pip
+    if [ -d "$MCP_DIR/venv" ]; then
+        doc_deps_pip="$MCP_DIR/venv/bin/pip"
+    else
+        doc_deps_pip="pip3"
+    fi
+
+    $doc_deps_pip install pypdf -q 2>/dev/null || $doc_deps_pip install pypdf --break-system-packages -q 2>/dev/null
     echo "  - pypdf (PDF): $(python3 -c 'import pypdf; print("OK")' 2>/dev/null || echo 'fallo')"
 
-    pip3 install python-docx --quiet 2>/dev/null || pip3 install python-docx --quiet --break-system-packages 2>/dev/null
+    $doc_deps_pip install python-docx -q 2>/dev/null || $doc_deps_pip install python-docx --break-system-packages -q 2>/dev/null
     echo "  - python-docx (DOCX): $(python3 -c 'import docx; print("OK")' 2>/dev/null || echo 'fallo')"
 
-    pip3 install openpyxl --quiet 2>/dev/null || pip3 install openpyxl --quiet --break-system-packages 2>/dev/null
+    $doc_deps_pip install openpyxl -q 2>/dev/null || $doc_deps_pip install openpyxl --break-system-packages -q 2>/dev/null
     echo "  - openpyxl (XLSX): $(python3 -c 'import openpyxl; print("OK")' 2>/dev/null || echo 'fallo')"
 
-    pip3 install xlrd --quiet 2>/dev/null || pip3 install xlrd --quiet --break-system-packages 2>/dev/null
+    $doc_deps_pip install xlrd -q 2>/dev/null || $doc_deps_pip install xlrd --break-system-packages -q 2>/dev/null
     echo "  - xlrd (XLS antiguo): $(python3 -c 'import xlrd; print("OK")' 2>/dev/null || echo 'fallo')"
 }
 

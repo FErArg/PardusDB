@@ -26,6 +26,8 @@
 - `mcp/src/server.py` defaults embedding-based text tools to dimension `384` and model `all-MiniLM-L6-v2`.
 - If `sentence-transformers` is unavailable, MCP text import/search code falls back to zero vectors instead of hard-failing.
 - `sdk/typescript/pardusdb/package.json` defines `npm run lint`, but does not declare `eslint` in `devDependencies`; do not assume lint works in a clean checkout.
+- **macOS venv isolation**: `install-macos.sh` installs all Python packages (mcp, sentence-transformers, pypdf, python-docx, openpyxl, xlrd) inside `~/.pardus/mcp/venv/`. The MCP server runs inside this venv, so all dependencies must be installed there — global pip packages are not visible.
+- **macOS Python 3.10+**: `install-macos.sh` auto-detects Python < 3.10 (common on macOS 26 with Python 3.9) and offers to install `python@3.13` via Homebrew. The installer uses `brew_prefix/opt/python@3.13/bin/python3.13` directly (not `python3` symlink).
 
 ## Release Notes
 
@@ -41,4 +43,6 @@
   2. Copy the binary: `cp target/release/pardusdb bin/pardus-v{VERSION}-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)`
   3. Update version numbers in all files listed above
   4. Commit and push before running installers
-- **Installer requirement**: `install.sh` requires the binary at `bin/pardus-v{VERSION}-linux-x86_64`. If missing, it will fail with "Binario precompilado no encontrado".
+- **Installer binary requirements**:
+  - `install.sh` requires `bin/pardus-v{VERSION}-linux-x86_64`. If missing, fails with "Binario precompilado no encontrado".
+  - `install-macos.sh` requires `bin/pardus-v{VERSION}-darwin-arm64`. If missing, fails with "Compila en tu Mac con: cargo build --release".

@@ -109,8 +109,8 @@ fn test_parse_select_columns() {
     match cmd {
         Command::Select { table, columns, limit, .. } => {
             assert_eq!(table, "users");
-            assert!(matches!(columns[0], SelectColumn::Column(ref s) if s == "name"));
-            assert!(matches!(columns[1], SelectColumn::Column(ref s) if s == "age"));
+            assert!(matches!(columns[0], SelectColumn::Column { name: ref s, alias: _ } if s == "name"));
+            assert!(matches!(columns[1], SelectColumn::Column { name: ref s, alias: _ } if s == "age"));
             assert_eq!(limit, Some(10));
         }
         _ => panic!("Expected Select"),

@@ -82,7 +82,7 @@ pub enum JoinColumn {
 #[derive(Clone, Debug)]
 pub enum SelectColumn {
     All,                           // *
-    Column(String),                // column_name
+    Column { name: String, alias: Option<String> },  // column_name or column_name AS alias
     Aggregate { func: AggregateFunc, column: String, alias: Option<String> },
 }
 
@@ -369,7 +369,7 @@ impl<'a> Parser<'a> {
                         column: column_name.clone(),
                     });
                     // Also add as SelectColumn for non-JOIN case
-                    select_columns.push(SelectColumn::Column(column_name));
+                    select_columns.push(SelectColumn::Column { name: column_name, alias: None });
                 } else {
                     // Regular column
                     // Check if it's an aggregate function
@@ -400,7 +400,17 @@ impl<'a> Parser<'a> {
                             alias: None,
                         });
                     } else {
-                        select_columns.push(SelectColumn::Column(col));
+                        select_columns.push(SelectColumn::Column { name: col.clone(), alias: None });
+                        // Check for AS alias
+                        self.skip_whitespace();
+                        if self.peek_keyword_upper() == "AS" {
+                            self.read_keyword()?;
+                            self.skip_whitespace();
+                            let alias = self.read_identifier()?;
+                            if let SelectColumn::Column { name: _, alias: a @ None } = select_columns.last_mut().unwrap() {
+                                *a = Some(alias);
+                            }
+                        }
                     }
                 }
 
@@ -596,7 +606,18 @@ impl<'a> Parser<'a> {
 
                 Ok(SelectColumn::Aggregate { func, column, alias })
             }
-            _ => Ok(SelectColumn::Column(self.read_identifier()?))
+            _ => {
+                let name = self.read_identifier()?;
+                self.skip_whitespace();
+                let alias = if self.peek_keyword_upper() == "AS" {
+                    self.read_keyword()?;
+                    self.skip_whitespace();
+                    Some(self.read_identifier()?)
+                } else {
+                    None
+                };
+                Ok(SelectColumn::Column { name, alias })
+            }
         }
     }
 

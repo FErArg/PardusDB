@@ -27,7 +27,7 @@ npm run build
 The PardusDB binary must be installed and available in your PATH:
 
 ```bash
-git clone https://github.com/FErArg/PardusDB.git
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 cargo build --release
 ./setup.sh  # Installs 'pardusdb' to /usr/local/bin

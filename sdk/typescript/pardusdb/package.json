@@ -1,6 +1,6 @@
 {
   "name": "pardusdb",
-  "version": "0.4.18",
+  "version": "0.4.21",
   "description": "TypeScript SDK for PardusDB - A fast, SQLite-like embedded vector database",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -28,13 +28,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FErArg/PardusDB",
+    "url": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git",
     "directory": "sdk/typescript/pardusdb"
   },
   "bugs": {
-    "url": "https://github.com/FErArg/PardusDB/issues"
+    "url": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git/issues"
   },
-  "homepage": "https://github.com/FErArg/PardusDB#readme",
+  "homepage": "ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git#readme",
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",

@@ -350,7 +350,7 @@ impl Database {
         // Convert SelectColumn to column names
         let col_names: Vec<String> = columns.iter()
             .filter_map(|c| match c {
-                SelectColumn::Column(name) => Some(name.clone()),
+                SelectColumn::Column { name, alias: _ } => Some(name.clone()),
                 _ => None,
             })
             .collect();
@@ -442,7 +442,7 @@ impl Database {
                     let name = alias.clone().unwrap_or_else(|| format!("{:?}({})", func, column));
                     results.push((name, value));
                 }
-                SelectColumn::Column(name) => {
+                SelectColumn::Column { name, alias: _ } => {
                     // For non-aggregate columns in aggregate query, take first value
                     if let Some(row) = matching_rows.first() {
                         if let Some(idx) = table.column_index(name) {
@@ -496,7 +496,7 @@ impl Database {
         // Pre-compute column names from the SELECT columns (same for all groups)
         let col_names: Vec<String> = columns.iter()
             .flat_map(|col| match col {
-                SelectColumn::Column(name) => vec![name.clone()],
+                SelectColumn::Column { name, alias } => vec![alias.clone().unwrap_or(name.clone())],
                 SelectColumn::Aggregate { func, column, alias } => {
                     vec![alias.clone().unwrap_or_else(|| format!("{:?}({})", func, column))]
                 }
@@ -516,7 +516,7 @@ impl Database {
 
             for col in columns {
                 match col {
-                    SelectColumn::Column(name) => {
+SelectColumn::Column { name, alias: _ } => {
                         // Take value from first row in group
                         if let Some(row) = group_rows.first() {
                             if let Some(idx) = table.column_index(name) {

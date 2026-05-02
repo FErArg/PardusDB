@@ -5,6 +5,51 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.21] - 2026-05-02
+
+### Changed
+
+- **Tmp directory conversion for file ingestion**: All document ingestion (`handle_import_text`, `handle_ingest_chunked`, `_process_ingest_job` via `handle_ingest_async`) now converts files to Markdown in a local `tmp/` directory before database insertion. This avoids timeout issues during the conversion step by decoupling file parsing from database ingestion. The tmp directory is cleaned up only after successful DB confirmation, never before.
+
+### Added
+
+- **`_ensure_tmp_dir()`**: Creates `./tmp` base directory if not exists
+- **`_create_tmp_uuid_dir()`**: Creates unique `tmp/{uuid}/` directories for isolation between concurrent operations
+- **`_convert_to_markdown()`**: Converts any supported file type to markdown in the output directory
+- **`_cleanup_tmp_dir()`**: Removes tmp directory using `shutil.rmtree`
+- **Debug path preservation**: On ingestion errors, the tmp directory is preserved and its path exposed in the error message via `[debug] tmp preserved at: {path}`
+
+### Fixed
+
+- **Timeout issue on large file ingestion**: Files are now converted to markdown in tmp before parsing, allowing the MCP server to handle larger files without triggering request timeouts.
+
+## [0.4.20] - 2026-05-01
+
+### Added
+
+- **`pardusdb_ingest_async`**: New async MCP tool for large document ingestion. Starts processing in background thread and returns job_id immediately, avoiding timeout issues with large PDFs (50MB+). Uses batch multi-VALUES INSERT (100 chunks per call) to reduce subprocess calls.
+- **`pardusdb_ingest_status`**: New MCP tool to poll status of async ingest jobs. Returns progress (chunks processed/total), inserted count, skipped duplicates, elapsed time, and any errors.
+- **Batch multi-VALUES INSERT**: `ingest_async` and `_process_ingest_job` now use batch INSERT with 100 chunks per SQL call, reducing N subprocess calls to N/100.
+
+### Fixed
+
+- **Timeout issue with large PDFs**: The `ingest_async` tool processes in background thread so MCP client timeout (60s) is not exceeded. Client polls for status.
+
+## [0.4.19] - 2026-05-01
+
+### Added
+
+- **`pardusdb_ingest_joplin`**: New MCP tool to ingest Joplin notes into PardusDB with smart sentence-aware chunking. Use after `joplin_read_note` to pass note content, title, tags, and timestamps. Reuses `smart_chunk` for semantic coherence and skips duplicate chunks by content hash.
+- **`smart_chunk()` function**: Sentence-aware text chunking with configurable target characters and overlap for better semantic coherence.
+- **`pardusdb_ingest_chunked`**: New MCP tool for smart sentence-aware document ingestion from files.
+- **Project database auto-discovery**: When running `pardusdb` or `pardus` with no args in a directory containing `database.pardus`, automatically opens that database instead of creating a new in-memory one. Creates `.database.pardusdb` marker file with timestamps and optionally adds `*.pardus` to `.gitignore`.
+- **MCP auto-discovery**: MCP server now auto-discovers `database.pardus` in CWD on startup. If found, opens and verifies integrity. If not found, creates it automatically.
+
+### Fixed
+
+- **SQL parser AS alias support** (`src/parser.rs`): Parser now correctly handles `SELECT column AS alias` syntax. Previously, aliases like `SELECT id AS my_id FROM table` would fail with "Expected 'FROM', got 'AS'". The parser now captures the alias in `SelectColumn::Column { name, alias }` and uses it in GROUP BY output and aggregate column naming.
+- **MCP server save handling** (`mcp/src/server.py`): Added explicit `save` command before `quit` in subprocess calls to ensure data is persisted to disk after each operation. Previously, if the subprocess didn't gracefully handle stdin closure, saves might not complete.
+
 ## [0.4.18] - 2026-05-01
 
 ### Fixed
@@ -40,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Bumped version** to 0.4.16 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
-- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `https://github.com/FErArg/PardusDB` across all documentation and configuration files.
+- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git` across all documentation and configuration files.
 
 ### Fixed
 

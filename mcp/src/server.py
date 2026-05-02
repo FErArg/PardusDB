@@ -12,11 +12,14 @@ import csv
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+import re
+from typing import Any, List, Optional
 
 try:
     from mcp.server import Server
@@ -36,6 +39,38 @@ except ImportError as exc:
 MAX_FILE_SIZE_MB = 50
 DEFAULT_VECTOR_DIM = 384
 EMBEDDER_MODEL = "all-MiniLM-L6-v2"
+TMP_DIR = Path("./tmp")
+
+
+def _ensure_tmp_dir() -> Path:
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    return TMP_DIR
+
+
+def _create_tmp_uuid_dir() -> Path:
+    _ensure_tmp_dir()
+    uid = uuid.uuid4().hex
+    tmp_uuid_dir = TMP_DIR / uid
+    tmp_uuid_dir.mkdir(parents=True, exist_ok=True)
+    return tmp_uuid_dir
+
+
+def _convert_to_markdown(file_path: str, output_dir: Path) -> tuple[Path, str]:
+    path = Path(file_path)
+    ext = path.suffix.lower()
+    parser = PARSERS.get(ext)
+    if not parser:
+        raise ValueError(f"Unsupported file type: {ext}")
+    parsed = parser(str(path))
+    content = parsed.get("content", "")
+    md_path = output_dir / f"{path.stem}.md"
+    md_path.write_text(content, encoding="utf-8")
+    return md_path, ext
+
+
+def _cleanup_tmp_dir(tmp_uuid_dir: Path):
+    if tmp_uuid_dir.exists():
+        shutil.rmtree(tmp_uuid_dir, ignore_errors=True)
 
 
 # ==================== Optional Dependencies ====================
@@ -90,14 +125,38 @@ class PardusDBClient:
     def __init__(self) -> None:
         self.db_path: Optional[str] = None
         self.current_table: Optional[str] = None
+        self._discover_database()
+
+    def _discover_database(self) -> None:
+        """Check for database.pardus in CWD. If found, open and verify integrity."""
+        cwd_db = Path.cwd() / "database.pardus"
+        if cwd_db.exists():
+            self.db_path = str(cwd_db)
+            self._verify_integrity()
+
+    def _verify_integrity(self) -> None:
+        """Run basic integrity check: access + SHOW TABLES."""
+        result = self.execute("SHOW TABLES;")
+        if "Error" in result:
+            raise ConnectionError(f"Database integrity check failed: {result}")
 
     def execute(self, command: str) -> str:
         import subprocess
+        if self.db_path is None:
+            cwd_db = Path.cwd() / "database.pardus"
+            if cwd_db.exists():
+                self.db_path = str(cwd_db)
+                self._verify_integrity()
+            else:
+                self.db_path = str(cwd_db)
+                create_result = self._create_database(str(cwd_db))
+                if "Error" in create_result:
+                    return create_result
         db_arg = [self.db_path] if self.db_path else []
         try:
             proc = subprocess.run(
                 ["pardusdb", *db_arg],
-                input=f"{command}\nquit\n".encode(),
+                input=f"{command}\nsave\nquit\n".encode(),
                 capture_output=True,
                 timeout=30,
             )
@@ -109,6 +168,23 @@ class PardusDBClient:
             return "Error: Query timed out"
         except FileNotFoundError:
             return "Error: pardusdb binary not found in PATH"
+
+    def _create_database(self, path: str) -> str:
+        """Create a new database file."""
+        import subprocess
+        try:
+            proc = subprocess.run(
+                ["pardusdb", path],
+                input=b".save\nquit\n",
+                capture_output=True,
+                timeout=30,
+            )
+            output = (proc.stdout + proc.stderr).decode()
+            if proc.returncode != 0:
+                return f"Error (exit {proc.returncode}): {output}"
+            return output
+        except Exception as e:
+            return f"Error creating database: {e}"
 
     def set_db_path(self, db_path: Optional[str]) -> None:
         self.db_path = db_path
@@ -245,6 +321,29 @@ def parse_count_from_result(result: str) -> int:
     if not m:
         return 0
     return int(m.group(1))
+
+
+def smart_chunk(text: str, target_chars: int = 500, overlap: int = 50) -> List[str]:
+    """Split text into ~target_chars chunks at sentence boundaries with overlap."""
+    if not text or not text.strip():
+        return []
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks, current = [], ""
+    for sent in sentences:
+        if len(current) + len(sent) <= target_chars:
+            current += sent + " "
+        else:
+            if current.strip():
+                chunks.append(current.strip())
+            current = (current[-overlap:] + sent + " ") if overlap > 0 and current else sent + " "
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
+
+
+def compute_chunk_hash(chunk: str) -> str:
+    """Compute a short hash for deduplication."""
+    return hashlib.sha256(chunk.encode()).hexdigest()[:16]
 
 
 # ==================== File Parsers ====================
@@ -676,6 +775,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     recursive = args.get("recursive", True)
     max_file_size_mb = args.get("max_file_size_mb", MAX_FILE_SIZE_MB)
     vector_dim = args.get("vector_dim", DEFAULT_VECTOR_DIM)
+    tmp_uuid_dir = None
 
     if not dir_path or not table:
         return {"content": [{"type": "text", "text": "Error: dir_path and table are required"}], "isError": True}
@@ -709,6 +809,11 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
 
     if total_files == 0:
         return {"content": [{"type": "text", "text": f"No supported files found in {dir_path} with patterns {file_patterns}"}]}
+
+    try:
+        tmp_uuid_dir = _create_tmp_uuid_dir()
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error creating tmp directory: {e}"}], "isError": True}
 
     stats = {"imported": 0, "skipped": 0, "errors": 0}
     error_details = []
@@ -751,7 +856,12 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
             fhash = "unknown"
 
         try:
-            parsed = parser(fpath)
+            md_path, _ = _convert_to_markdown(fpath, tmp_uuid_dir)
+            parsed = parse_md(str(md_path))
+        except ValueError as e:
+            stats["errors"] += 1
+            error_details.append(f"{file_path.name}: {str(e)}")
+            continue
         except ImportError as e:
             stats["errors"] += 1
             error_details.append(f"{file_path.name}: {str(e)}")
@@ -844,6 +954,9 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         if (i + 1) % 5 == 0:
             print(f"[progress] Processed {i + 1}/{total_files} files...", file=sys.stderr, flush=True)
 
+    _cleanup_tmp_dir(tmp_uuid_dir)
+    tmp_uuid_dir = None
+
     embedder_info = f"yes ({EMBEDDER_MODEL})" if HAS_EMBEDDER else "no (install sentence-transformers)"
     summary = [
         f"Import completed:",
@@ -866,6 +979,479 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
         for err in error_details[:20]:
             summary.append(f"  ! {err}")
     return {"content": [{"type": "text", "text": "\n".join(summary)}]}
+
+
+async def handle_ingest_chunked(args: dict[str, Any]) -> dict[str, Any]:
+    table = args.get("table")
+    file_path = args.get("file_path")
+    chunk_size = args.get("chunk_size", 500)
+    overlap = args.get("overlap", 50)
+    vector_dim = args.get("vector_dim", DEFAULT_VECTOR_DIM)
+    tmp_uuid_dir = None
+
+    if not table or not file_path:
+        return {"content": [{"type": "text", "text": "Error: table and file_path are required"}], "isError": True}
+
+    try:
+        safe_table = sql_safe_identifier(table)
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
+
+    path = Path(file_path)
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: File not found: {file_path}"}], "isError": True}
+
+    fsize = path.stat().st_size
+    if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
+        return {"content": [{"type": "text", "text": f"Error: File too large ({fsize / 1024 / 1024:.1f} MB > {MAX_FILE_SIZE_MB} MB limit)"}], "isError": True}
+
+    if not HAS_EMBEDDER:
+        return {"content": [{"type": "text", "text": "Error: sentence-transformers not installed. Install with: pip install sentence-transformers"}], "isError": True}
+
+    embedder = get_embedder()
+    if not embedder:
+        return {"content": [{"type": "text", "text": "Error: Failed to load embedder model"}], "isError": True}
+
+    try:
+        tmp_uuid_dir = _create_tmp_uuid_dir()
+        md_path, ext = _convert_to_markdown(file_path, tmp_uuid_dir)
+        parsed = parse_md(str(md_path))
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
+    except ImportError as e:
+        return {"content": [{"type": "text", "text": f"Error: Missing dependency for {ext} files: {e}"}], "isError": True}
+    except Exception as e:
+        error_msg = f"Error converting file to markdown: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+    full_text = parsed.get("content", "")
+    if not full_text.strip():
+        error_msg = "Error: No text content extracted from file"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+    chunks = smart_chunk(full_text, target_chars=chunk_size, overlap=overlap)
+    if not chunks:
+        error_msg = "Error: No chunks generated from text"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+    total_chunks = len(chunks)
+    source_file = str(path.resolve())
+
+    db_client.execute(f"CREATE TABLE IF NOT EXISTS {safe_table} (embedding VECTOR({vector_dim}), content TEXT, source_file TEXT, chunk_index INT, total_chunks INT, chunk_hash TEXT)")
+
+    existing_hashes = set()
+    try:
+        result = db_client.execute(f"SELECT chunk_hash FROM {safe_table} WHERE source_file = '{sql_escape(source_file)}'")
+        for line in result.split("\n"):
+            m = re.search(r"chunk_hash='([^']+)'", line)
+            if m:
+                existing_hashes.add(m.group(1))
+    except Exception:
+        pass
+
+    chunks_to_embed = []
+    chunks_to_skip = []
+    for i, chunk in enumerate(chunks):
+        h = compute_chunk_hash(chunk)
+        if h in existing_hashes:
+            chunks_to_skip.append(i)
+        else:
+            chunks_to_embed.append((i, chunk, h))
+
+    if not chunks_to_embed:
+        _cleanup_tmp_dir(tmp_uuid_dir)
+        return {"content": [{"type": "text", "text": f"Ingest complete (all {total_chunks} chunks already exist)"}]}
+
+    texts_to_embed = [c[1] for c in chunks_to_embed]
+    chunk_indices = [c[0] for c in chunks_to_embed]
+    chunk_hashes = [c[2] for c in chunks_to_embed]
+
+    try:
+        vecs = embedder.encode(texts_to_embed, convert_to_numpy=True, normalize_embeddings=True)
+        vecs = vecs.tolist() if hasattr(vecs, 'tolist') else list(vecs)
+        if len(vecs) != len(texts_to_embed) or (vecs and len(vecs[0]) != vector_dim):
+            error_msg = f"Error: Embedding dimension mismatch (expected {vector_dim})"
+            if tmp_uuid_dir:
+                error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+            return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+    except Exception as e:
+        error_msg = f"Error generating embeddings: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+    inserted = 0
+    try:
+        for batch_start in range(0, len(chunks_to_embed), 100):
+            batch_end = min(batch_start + 100, len(chunks_to_embed))
+            for j in range(batch_start, batch_end):
+                vec = vecs[j - batch_start]
+                idx = chunk_indices[j]
+                h = chunk_hashes[j]
+                chunk_text = chunks[idx]
+                vec_str = f"[{', '.join(str(x) for x in vec)}]"
+                content_esc = sql_escape(chunk_text)
+                sql = (f"INSERT INTO {safe_table} (embedding, content, source_file, chunk_index, total_chunks, chunk_hash) "
+                       f"VALUES ({vec_str}, '{content_esc}', '{sql_escape(source_file)}', {idx}, {total_chunks}, '{h}')")
+                result = db_client.execute(sql)
+                if "Error" not in result:
+                    inserted += 1
+
+            print(f"  Processed {batch_end}/{len(chunks_to_embed)} chunks...", file=sys.stderr, flush=True)
+
+        _cleanup_tmp_dir(tmp_uuid_dir)
+        return {"content": [{"type": "text", "text": f"Ingest complete. Inserted {inserted} new chunks, skipped {len(chunks_to_skip)} duplicates (of {total_chunks} total chunks)."}]}
+    except Exception as e:
+        error_msg = f"Error inserting to database: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+
+async def handle_ingest_joplin(args: dict[str, Any]) -> dict[str, Any]:
+    table = args.get("table")
+    note_id = args.get("note_id")
+    note_content = args.get("note_content")
+    note_title = args.get("note_title", "")
+    note_tags = args.get("note_tags", "")
+    created_time = args.get("created_time", 0)
+    updated_time = args.get("updated_time", 0)
+    chunk_size = args.get("chunk_size", 500)
+    overlap = args.get("overlap", 50)
+    vector_dim = args.get("vector_dim", DEFAULT_VECTOR_DIM)
+
+    if not table or not note_id:
+        return {"content": [{"type": "text", "text": "Error: table and note_id are required"}], "isError": True}
+    if not note_content:
+        return {"content": [{"type": "text", "text": "Error: note_content is required"}], "isError": True}
+
+    try:
+        safe_table = sql_safe_identifier(table)
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
+
+    if not HAS_EMBEDDER:
+        return {"content": [{"type": "text", "text": "Error: sentence-transformers not installed."}], "isError": True}
+
+    embedder = get_embedder()
+    if not embedder:
+        return {"content": [{"type": "text", "text": "Error: Failed to load embedder"}], "isError": True}
+
+    note_content = note_content.strip()
+    if not note_content:
+        return {"content": [{"type": "text", "text": "Error: Note content is empty"}], "isError": True}
+
+    chunks = smart_chunk(note_content, target_chars=chunk_size, overlap=overlap)
+    total_chunks = len(chunks)
+    if not chunks:
+        return {"content": [{"type": "text", "text": "Error: No chunks generated from note content"}], "isError": True}
+
+    source_file = f"joplin:{note_id}"
+
+    db_client.execute(f"CREATE TABLE IF NOT EXISTS {safe_table} (embedding VECTOR({vector_dim}), content TEXT, source_file TEXT, note_title TEXT, note_tags TEXT, created_time INT, updated_time INT, chunk_index INT, total_chunks INT, chunk_hash TEXT)")
+
+    existing_hashes = set()
+    try:
+        result = db_client.execute(f"SELECT chunk_hash FROM {safe_table} WHERE source_file = '{sql_escape(source_file)}'")
+        for line in result.split("\n"):
+            m = re.search(r"chunk_hash='([^']+)'", line)
+            if m:
+                existing_hashes.add(m.group(1))
+    except Exception:
+        pass
+
+    chunks_to_embed = []
+    chunks_to_skip = []
+    for i, chunk in enumerate(chunks):
+        h = compute_chunk_hash(chunk)
+        if h in existing_hashes:
+            chunks_to_skip.append(i)
+        else:
+            chunks_to_embed.append((i, chunk, h))
+
+    if not chunks_to_embed:
+        return {"content": [{"type": "text", "text": f"Ingest complete (all {total_chunks} chunks already exist from '{note_title or note_id}')"}]}
+
+    texts_to_embed = [c[1] for c in chunks_to_embed]
+    chunk_indices = [c[0] for c in chunks_to_embed]
+    chunk_hashes = [c[2] for c in chunks_to_embed]
+
+    try:
+        vecs = embedder.encode(texts_to_embed, convert_to_numpy=True, normalize_embeddings=True)
+        vecs = vecs.tolist() if hasattr(vecs, 'tolist') else list(vecs)
+        if len(vecs) != len(texts_to_embed) or (vecs and len(vecs[0]) != vector_dim):
+            return {"content": [{"type": "text", "text": f"Error: Embedding dimension mismatch (expected {vector_dim})"}], "isError": True}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error generating embeddings: {e}"}], "isError": True}
+
+    inserted = 0
+    title_esc = sql_escape(note_title)
+    tags_esc = sql_escape(note_tags)
+
+    for batch_start in range(0, len(chunks_to_embed), 100):
+        batch_end = min(batch_start + 100, len(chunks_to_embed))
+        for j in range(batch_start, batch_end):
+            vec = vecs[j - batch_start]
+            idx = chunk_indices[j]
+            h = chunk_hashes[j]
+            chunk_text = chunks[idx]
+            vec_str = f"[{', '.join(str(x) for x in vec)}]"
+            content_esc = sql_escape(chunk_text)
+            sql = (f"INSERT INTO {safe_table} (embedding, content, source_file, note_title, note_tags, created_time, updated_time, chunk_index, total_chunks, chunk_hash) "
+                   f"VALUES ({vec_str}, '{content_esc}', '{sql_escape(source_file)}', '{title_esc}', '{tags_esc}', {created_time}, {updated_time}, {idx}, {total_chunks}, '{h}')")
+            result = db_client.execute(sql)
+            if "Error" not in result:
+                inserted += 1
+
+        print(f"  Processed {batch_end}/{len(chunks_to_embed)} chunks...", file=sys.stderr, flush=True)
+
+    return {"content": [{"type": "text", "text": f"Ingest complete. Inserted {inserted} new chunks, skipped {len(chunks_to_skip)} duplicates (of {total_chunks} total chunks from '{note_title or note_id}')."}]}
+
+
+# ==================== Job Tracking for Async Ingest ====================
+
+_jobs: dict[str, dict] = {}
+_job_counter = 0
+
+def _next_job_id() -> str:
+    global _job_counter
+    _job_counter += 1
+    return f"job_{_job_counter:06d}"
+
+
+def _start_ingest_job(file_path: str, table: str, chunk_size: int, overlap: int, vector_dim: int):
+    """Start async ingest job in background thread."""
+    import threading
+
+    job_id = _next_job_id()
+    job_info = {
+        "id": job_id,
+        "file_path": file_path,
+        "table": table,
+        "status": "processing",
+        "total_chunks": 0,
+        "processed_chunks": 0,
+        "inserted": 0,
+        "skipped": 0,
+        "error": None,
+        "started_at": time.time(),
+    }
+    _jobs[job_id] = job_info
+
+    def process():
+        try:
+            _process_ingest_job(job_id)
+        except Exception as e:
+            _jobs[job_id]["status"] = "failed"
+            _jobs[job_id]["error"] = str(e)
+
+    thread = threading.Thread(target=process, daemon=True)
+    thread.start()
+    return job_id
+
+
+def _process_ingest_job(job_id: str):
+    """Process ingest job in background."""
+    job = _jobs[job_id]
+    path = Path(job["file_path"])
+    table = job["table"]
+    tmp_uuid_dir = None
+
+    try:
+        safe_table = sql_safe_identifier(table)
+    except ValueError:
+        job["status"] = "failed"
+        job["error"] = "Invalid table name"
+        return
+
+    try:
+        tmp_uuid_dir = _create_tmp_uuid_dir()
+        md_path, ext = _convert_to_markdown(str(path), tmp_uuid_dir)
+        parsed = parse_md(str(md_path))
+    except ValueError as e:
+        job["status"] = "failed"
+        job["error"] = str(e)
+        return
+    except Exception as e:
+        job["status"] = "failed"
+        error_msg = f"Convert to markdown error: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        job["error"] = error_msg
+        return
+
+    full_text = parsed.get("content", "")
+    if not full_text.strip():
+        job["status"] = "failed"
+        job["error"] = "No text content"
+        if tmp_uuid_dir:
+            job["error"] += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return
+
+    chunk_size = job.get("chunk_size", 500)
+    overlap = job.get("overlap", 50)
+    vector_dim = job.get("vector_dim", 384)
+
+    chunks = smart_chunk(full_text, target_chars=chunk_size, overlap=overlap)
+    total_chunks = len(chunks)
+    job["total_chunks"] = total_chunks
+
+    if not chunks:
+        job["status"] = "failed"
+        job["error"] = "No chunks generated"
+        if tmp_uuid_dir:
+            job["error"] += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        return
+
+    source_file = str(path.resolve())
+    db_client.execute(f"CREATE TABLE IF NOT EXISTS {safe_table} (embedding VECTOR({vector_dim}), content TEXT, source_file TEXT, chunk_index INT, total_chunks INT, chunk_hash TEXT)")
+
+    existing_hashes = set()
+    try:
+        result = db_client.execute(f"SELECT chunk_hash FROM {safe_table} WHERE source_file = '{sql_escape(source_file)}'")
+        for line in result.split("\n"):
+            m = re.search(r"chunk_hash='([^']+)'", line)
+            if m:
+                existing_hashes.add(m.group(1))
+    except Exception:
+        pass
+
+    chunks_to_embed = []
+    chunks_to_skip = []
+    for i, chunk in enumerate(chunks):
+        h = compute_chunk_hash(chunk)
+        if h in existing_hashes:
+            chunks_to_skip.append(i)
+        else:
+            chunks_to_embed.append((i, chunk, h))
+
+    job["skipped"] = len(chunks_to_skip)
+
+    if not chunks_to_embed:
+        _cleanup_tmp_dir(tmp_uuid_dir)
+        job["status"] = "completed"
+        job["inserted"] = 0
+        return
+
+    embedder = get_embedder()
+    if not embedder or not HAS_EMBEDDER:
+        job["status"] = "failed"
+        error_msg = "Embedder not available"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        job["error"] = error_msg
+        return
+
+    texts_to_embed = [c[1] for c in chunks_to_embed]
+    chunk_indices = [c[0] for c in chunks_to_embed]
+    chunk_hashes = [c[2] for c in chunks_to_embed]
+
+    try:
+        vecs = embedder.encode(texts_to_embed, convert_to_numpy=True, normalize_embeddings=True)
+        vecs = vecs.tolist() if hasattr(vecs, 'tolist') else list(vecs)
+    except Exception as e:
+        job["status"] = "failed"
+        error_msg = f"Embedding error: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        job["error"] = error_msg
+        return
+
+    BATCH_SIZE = 100
+    inserted = 0
+
+    try:
+        for batch_start in range(0, len(chunks_to_embed), BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, len(chunks_to_embed))
+            batch_vecs = vecs[batch_start:batch_end]
+            batch_indices = chunk_indices[batch_start:batch_end]
+            batch_hashes = chunk_hashes[batch_start:batch_end]
+
+            values_parts = []
+            for j in range(batch_end - batch_start):
+                vec = batch_vecs[j]
+                idx = batch_indices[j]
+                h = batch_hashes[j]
+                chunk_text = chunks[idx]
+                vec_str = f"[{', '.join(str(x) for x in vec)}]"
+                content_esc = sql_escape(chunk_text)
+                values_parts.append(f"({vec_str}, '{content_esc}', '{sql_escape(source_file)}', {idx}, {total_chunks}, '{h}')")
+
+            sql = f"INSERT INTO {safe_table} (embedding, content, source_file, chunk_index, total_chunks, chunk_hash) VALUES {', '.join(values_parts)}"
+            result = db_client.execute(sql)
+            if "Error" not in result:
+                inserted += len(batch_vecs)
+
+            job["processed_chunks"] = batch_end
+            job["inserted"] = inserted
+
+        _cleanup_tmp_dir(tmp_uuid_dir)
+        job["status"] = "completed"
+        job["inserted"] = inserted
+    except Exception as e:
+        job["status"] = "failed"
+        error_msg = f"DB insert error: {e}"
+        if tmp_uuid_dir:
+            error_msg += f"\n[debug] tmp preserved at: {tmp_uuid_dir}"
+        job["error"] = error_msg
+
+
+async def handle_ingest_async(args: dict[str, Any]) -> dict[str, Any]:
+    table = args.get("table")
+    file_path = args.get("file_path")
+    chunk_size = args.get("chunk_size", 500)
+    overlap = args.get("overlap", 50)
+    vector_dim = args.get("vector_dim", DEFAULT_VECTOR_DIM)
+
+    if not table or not file_path:
+        return {"content": [{"type": "text", "text": "Error: table and file_path are required"}], "isError": True}
+
+    path = Path(file_path)
+    if not path.exists():
+        return {"content": [{"type": "text", "text": f"Error: File not found: {file_path}"}], "isError": True}
+
+    fsize = path.stat().st_size
+    if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
+        return {"content": [{"type": "text", "text": f"Error: File too large ({fsize / 1024 / 1024:.1f} MB > {MAX_FILE_SIZE_MB} MB limit)"}], "isError": True}
+
+    ext = path.suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        return {"content": [{"type": "text", "text": f"Error: Unsupported file type '{ext}'. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"}], "isError": True}
+
+    job_id = _start_ingest_job(file_path, table, chunk_size, overlap, vector_dim)
+    return {"content": [{"type": "text", "text": f"Job started: {job_id}. Poll with pardusdb_ingest_status with job_id='{job_id}'"}]}
+
+
+async def handle_ingest_status(args: dict[str, Any]) -> dict[str, Any]:
+    job_id = args.get("job_id")
+    if not job_id:
+        return {"content": [{"type": "text", "text": "Error: job_id is required"}], "isError": True}
+
+    if job_id not in _jobs:
+        return {"content": [{"type": "text", "text": f"Job not found: {job_id}"}], "isError": True}
+
+    job = _jobs[job_id]
+    elapsed = time.time() - job["started_at"]
+    progress = f"{job['processed_chunks']}/{job['total_chunks']}" if job['total_chunks'] > 0 else "0/0"
+
+    result_text = f"""Job: {job_id}
+Status: {job['status']}
+File: {job['file_path']}
+Table: {job['table']}
+Progress: {progress}
+Inserted: {job['inserted']}
+Skipped (duplicates): {job['skipped']}
+Elapsed: {elapsed:.1f}s"""
+    if job.get("error"):
+        result_text += f"\nError: {job['error']}"
+
+    return {"content": [{"type": "text", "text": result_text}]}
 
 
 # ==================== Health Check Tool ====================
@@ -1205,6 +1791,67 @@ TOOLS = [
         },
     ),
     Tool(
+        name="pardusdb_ingest_chunked",
+        description="Ingest a single document with smart sentence-aware chunking. Extracts full text, splits into coherent chunks of ~chunk_size characters at sentence boundaries, generates embeddings, and batch inserts. Skips duplicate chunks by content hash.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "Target table name"},
+                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS)"},
+                "chunk_size": {"type": "integer", "description": "Target characters per chunk (default: 500)"},
+                "overlap": {"type": "integer", "description": "Character overlap between chunks for continuity (default: 50)"},
+                "vector_dim": {"type": "integer", "description": f"Embedding dimension (default: {DEFAULT_VECTOR_DIM})"},
+            },
+            "required": ["table", "file_path"],
+        },
+    ),
+    Tool(
+        name="pardusdb_ingest_joplin",
+        description="Ingest a Joplin note into PardusDB with smart sentence-aware chunking. Use after joplin_read_note to pass the fetched note content, title, tags, and timestamps. Reuses smart_chunk for semantic coherence and skips duplicate chunks by content hash.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "Target table name"},
+                "note_id": {"type": "string", "description": "Joplin note ID (used for source tracking and deduplication)"},
+                "note_content": {"type": "string", "description": "Full note body content from joplin_read_note"},
+                "note_title": {"type": "string", "description": "Note title from joplin_read_note"},
+                "note_tags": {"type": "string", "description": "Comma-separated tags from joplin_read_note"},
+                "created_time": {"type": "integer", "description": "Unix timestamp in ms from joplin_read_note (optional)"},
+                "updated_time": {"type": "integer", "description": "Unix timestamp in ms from joplin_read_note (optional)"},
+                "chunk_size": {"type": "integer", "description": "Target characters per chunk (default: 500)"},
+                "overlap": {"type": "integer", "description": "Character overlap between chunks for continuity (default: 50)"},
+                "vector_dim": {"type": "integer", "description": f"Embedding dimension (default: {DEFAULT_VECTOR_DIM})"},
+            },
+            "required": ["table", "note_id", "note_content", "note_title"],
+        },
+    ),
+    Tool(
+        name="pardusdb_ingest_async",
+        description="Ingest a document asynchronously to avoid timeout. Starts processing immediately and returns a job_id for tracking. Poll with pardusdb_ingest_status to monitor progress. For large PDFs (50MB+), use this instead of ingest_chunked.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "Target table name"},
+                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS)"},
+                "chunk_size": {"type": "integer", "description": "Target characters per chunk (default: 500)"},
+                "overlap": {"type": "integer", "description": "Character overlap between chunks for continuity (default: 50)"},
+                "vector_dim": {"type": "integer", "description": f"Embedding dimension (default: {DEFAULT_VECTOR_DIM})"},
+            },
+            "required": ["table", "file_path"],
+        },
+    ),
+    Tool(
+        name="pardusdb_ingest_status",
+        description="Check the status of an async ingest job started with pardusdb_ingest_async. Returns progress, chunks processed, and any errors.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Job ID returned by pardusdb_ingest_async"},
+            },
+            "required": ["job_id"],
+        },
+    ),
+    Tool(
         name="pardusdb_health_check",
         description="Run integrity checks on the database. Verifies tables, detects orphan children, checks for duplicate parent documents, and validates embedding consistency.",
         inputSchema={
@@ -1244,7 +1891,7 @@ TOOLS = [
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.18")
+server = Server("pardusdb-mcp", "0.4.20")
 
 
 @server.list_tools()
@@ -1286,6 +1933,14 @@ async def call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
         result = await handle_get_schema(args)
     elif name == "pardusdb_import_status":
         result = await handle_import_status(args)
+    elif name == "pardusdb_ingest_chunked":
+        result = await handle_ingest_chunked(args)
+    elif name == "pardusdb_ingest_joplin":
+        result = await handle_ingest_joplin(args)
+    elif name == "pardusdb_ingest_async":
+        result = await handle_ingest_async(args)
+    elif name == "pardusdb_ingest_status":
+        result = await handle_ingest_status(args)
     else:
         result = {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 

@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.18-blue.svg)](https://github.com/FErArg/PardusDB)
+[![Version](https://img.shields.io/badge/version-0.4.21-blue.svg)](ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
@@ -42,7 +42,7 @@ Two installers are provided. Both install the binary, helper script, MCP server,
 ### Option 1: setup.sh — Build from source (requires Rust)
 
 ```bash
-git clone https://github.com/FErArg/PardusDB.git
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./setup.sh --install
 ```
@@ -52,22 +52,22 @@ Compiles `pardusdb` from Rust source with `cargo build --release`. Use this if y
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone https://github.com/FErArg/PardusDB.git
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./install.sh --install
 ```
 
-Copies the precompiled binary from `bin/pardus-v0.4.18-linux-x86_64` to `~/.local/bin/pardusdb`. No Rust compilation — faster but requires a pre-existing binary in the repo.
+Copies the precompiled binary from `bin/pardus-v0.4.21-linux-x86_64` to `~/.local/bin/pardusdb`. No Rust compilation — faster but requires a pre-existing binary in the repo.
 
 ### Option 3: install-macos.sh — macOS with venv-based MCP (auto-installs Python 3.10+ if needed)
 
 ```bash
-git clone https://github.com/FErArg/PardusDB.git
+git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
 cd pardusdb
 ./install-macos.sh --install
 ```
 
-Requires the precompiled macOS binary `bin/pardus-v0.4.18-darwin-arm64` in the repo. If not present, compile on your Mac with `cargo build --release` and copy to that path. Installs the MCP server inside a Python virtual environment (`~/.pardus/mcp/venv/`). **If Python < 3.10 is detected, automatically offers to install Python 3.13 via Homebrew.**
+Requires the precompiled macOS binary `bin/pardus-v0.4.21-darwin-arm64` in the repo. If not present, compile on your Mac with `cargo build --release` and copy to that path. Installs the MCP server inside a Python virtual environment (`~/.pardus/mcp/venv/`). **If Python < 3.10 is detected, automatically offers to install Python 3.13 via Homebrew.**
 
 | | setup.sh | install.sh | install-macos.sh |
 |---|---|---|---|
@@ -237,6 +237,10 @@ PardusDB includes an MCP server that allows AI agents (OpenCode, Claude Desktop,
 | `pardusdb_health_check` | Run integrity checks on tables and data |
 | `pardusdb_get_schema` | Show table schema and structure |
 | `pardusdb_import_status` | View or manage import history |
+| `pardusdb_ingest_chunked` | Ingest a document with smart sentence-aware chunking |
+| `pardusdb_ingest_joplin` | Ingest a Joplin note (use after `joplin_read_note`) |
+| `pardusdb_ingest_async` | Async ingest for large PDFs (avoids timeout) |
+| `pardusdb_ingest_status` | Check async ingest job progress |
 
 ### OpenCode Configuration
 

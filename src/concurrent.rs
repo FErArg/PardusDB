@@ -570,7 +570,7 @@ impl<'a> Connection<'a> {
         // Convert SelectColumn to column names
         let col_names: Vec<String> = columns.iter()
             .filter_map(|c| match c {
-                crate::parser::SelectColumn::Column(name) => Some(name.clone()),
+                crate::parser::SelectColumn::Column { name, alias: _ } => Some(name.clone()),
                 _ => None,
             })
             .collect();

@@ -2,7 +2,7 @@
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.21-blue.svg)](ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git)
+[![Version](https://img.shields.io/badge/version-0.4.21-blue.svg)](https://github.com/FErArg/PardusDB)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
@@ -14,8 +14,8 @@ While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no
 ## Contributors
 
 - [FErArg](https://ferarg.com) — *Individual contributor*
-- **Deepseek** — *AI research and development*
-- **Miramax** — *AI research and development*
+- [Deepseek](https://deepseek.com) — *AI research and development*
+- [Minimax AI](https://www.minimax.io/) — *AI research and development*
 
 
 ## Features
@@ -30,10 +30,14 @@ While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no
 - **Thread-safe** — Safe concurrent reads in multi-threaded applications
 - **Full transactions** — BEGIN/COMMIT/ROLLBACK for atomic operations
 - **Optional GPU acceleration** — For large batch inserts and queries
-- **Python MCP server**
+- **Python MCP server** — 17 tools for AI agent integration (OpenCode, Claude Desktop)
 - **Import documents from disk** — PDF, CSV, DOCX, XLSX, XLS, JSON, JSONL, MD, TXT with auto-embeddings and parent-child tracking
-- **Optional dependency installers** — Install document parsing libraries (pypdf, python-docx, openpyxl, xlrd) and sentence-transformers for auto-embeddings via setup.sh/install.sh
+- **Smart sentence-aware chunking** — Intelligent text splitting at sentence boundaries with configurable overlap
+- **Async document ingestion** — Background thread processing for large files (50MB+) without timeout
+- **Joplin note integration** — Direct ingestion of Joplin notes with metadata preservation
+- **Tmp directory conversion** — All file conversions performed in isolated tmp directories before DB ingestion, cleaned up on success
 - **Database health checks** — Verify integrity, detect orphans, check dimensions
+- **Optional dependency installers** — Install document parsing libraries and sentence-transformers via setup.sh/install.sh
 
 ## Installation
 
@@ -42,7 +46,7 @@ Two installers are provided. Both install the binary, helper script, MCP server,
 ### Option 1: setup.sh — Build from source (requires Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardusdb
 ./setup.sh --install
 ```
@@ -52,7 +56,7 @@ Compiles `pardusdb` from Rust source with `cargo build --release`. Use this if y
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardusdb
 ./install.sh --install
 ```
@@ -62,7 +66,7 @@ Copies the precompiled binary from `bin/pardus-v0.4.21-linux-x86_64` to `~/.loca
 ### Option 3: install-macos.sh — macOS with venv-based MCP (auto-installs Python 3.10+ if needed)
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardusdb
 ./install-macos.sh --install
 ```

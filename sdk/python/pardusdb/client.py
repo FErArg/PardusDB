@@ -91,7 +91,7 @@ class PardusDB:
 
         raise ConnectionError(
             "pardusdb binary not found in PATH. Please install PardusDB first: "
-            "git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git && cd pardusdb && ./setup.sh"
+            "git clone https://github.com/FErArg/PardusDB && cd pardusdb && ./setup.sh"
         )
 
     def _execute(self, command: str) -> str:

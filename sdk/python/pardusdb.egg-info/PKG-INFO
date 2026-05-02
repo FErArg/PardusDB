@@ -4,9 +4,9 @@ Version: 0.4.17
 Summary: Python SDK for PardusDB - A fast, SQLite-like embedded vector database
 Author-email: Pardus AI <hello@pardusai.org>
 License: MIT
-Project-URL: Homepage, ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
-Project-URL: Documentation, ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git#readme
-Project-URL: Repository, ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+Project-URL: Homepage, https://github.com/FErArg/PardusDB
+Project-URL: Documentation, https://github.com/FErArg/PardusDB#readme
+Project-URL: Repository, https://github.com/FErArg/PardusDB
 Keywords: vector,database,embeddings,similarity-search,rag,ai
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
@@ -47,7 +47,7 @@ pip install -e .
 The PardusDB binary must be installed and available in your PATH:
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardusdb
 cargo build --release
 ./setup.sh  # Installs 'pardusdb' to /usr/local/bin

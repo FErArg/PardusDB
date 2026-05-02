@@ -20,7 +20,7 @@ pip install -e .
 The PardusDB binary must be installed and available in your PATH:
 
 ```bash
-git clone ssh://git@svr1.serinfo.com.es:6022/home/git/pardus-rag.git
+git clone https://github.com/FErArg/PardusDB
 cd pardusdb
 cargo build --release
 ./setup.sh  # Installs 'pardusdb' to /usr/local/bin

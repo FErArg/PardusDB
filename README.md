@@ -89,42 +89,66 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 ### Using the Helper (Recommended)
 
-The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`:
+The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`. This is the recommended way to use PardusDB:
 
 ```bash
-pardus                    # Opens database, creates if missing
-pardus mi.db              # Open specific file
+pardus                    # Opens ~/.pardus/pardus-rag.db (creates if missing)
+pardus mi.db              # Opens specific file
+pardus                    # Exit with: quit or Ctrl+C
 ```
 
-### Using the REPL
+### Using the Binary Directly
 
+The `pardusdb` binary has two modes:
+
+**File-backed mode** (with path argument):
 ```bash
-pardus
+pardusdb mi.db            # Opens file, processes SQL from stdin, saves on quit
 ```
+
+**REPL mode** (no arguments):
+```bash
+pardusdb                  # Opens project database (database.pardus in CWD) or in-memory
+```
+
+### REPL Session Example
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║                    PardusDB REPL                      ║
-║          Vector Database with SQL Interface           ║
+║                    PardusDB REPL                         ║
+║          Vector Database with SQL Interface               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-pardusdb [~/.pardus/pardus-rag.db]> CREATE TABLE docs (embedding VECTOR(768), content TEXT);
+pardusdb [memory]> CREATE TABLE docs (embedding VECTOR(384), content TEXT);
 Table 'docs' created
 
-pardusdb [~/.pardus/pardus-rag.db]> INSERT INTO docs (embedding, content)
-VALUES ([0.1, 0.2, 0.3, ...], 'Hello World');
-Inserted row with id=1
+pardusdb [memory]> INSERT INTO docs (embedding, content)
+VALUES ([0.1, 0.2, ...], 'Hello World');
+Inserted row
 
-pardusdb [~/.pardus/pardus-rag.db]> SELECT * FROM docs
-WHERE embedding SIMILARITY [0.1, 0.2, 0.3, ...] LIMIT 5;
+pardusdb [memory]> SELECT * FROM docs
+WHERE embedding SIMILARITY [0.1, 0.2, ...] LIMIT 5;
 
 Found 1 similar rows:
-  id=1, distance=0.0000, values=[Vector([...]), Text("Hello World")]
+  id=1, distance=0.0000, content=Hello World
 
-pardusdb [~/.pardus/pardus-rag.db]> quit
-Saved to: ~/.pardus/pardus-rag.db
+pardusdb [memory]> .open mi.db
+Database opened: mi.db
+
+pardusdb [mi.db]> .save
+Saved to: mi.db
+
+pardusdb [mi.db]> quit
 Goodbye!
 ```
+
+### Helper vs Binary: What's the Difference?
+
+| Command | Behavior |
+|---------|----------|
+| `pardus` | Helper script that ensures `~/.pardus/pardus-rag.db` exists and opens it |
+| `pardusdb` (no args) | REPL with in-memory DB or project `database.pardus` if found in CWD |
+| `pardusdb <path>` | Opens specific file, reads SQL from stdin until `quit` |
 
 ## SQL Syntax
 

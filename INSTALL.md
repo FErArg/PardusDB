@@ -181,19 +181,35 @@ pardusdb --version
 
 ### Using the Helper (Recommended)
 
-The `pardus` helper automatically manages the default database:
+The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`. This is the recommended way to use PardusDB:
 
 ```bash
 pardus                    # Opens ~/.pardus/pardus-rag.db (creates if missing)
 pardus mi.db              # Opens specific file
+pardus                    # Exit with: quit or Ctrl+C
 ```
 
 ### Using the Binary Directly
 
+The `pardusdb` binary has two modes:
+
+**File-backed mode** (with path argument):
 ```bash
-pardusdb                          # In-memory session (no persistence)
-pardusdb ~/.pardus/mi.db          # Open specific file
+pardusdb mi.db            # Opens file, processes SQL from stdin, saves on quit
 ```
+
+**REPL mode** (no arguments):
+```bash
+pardusdb                  # Opens project database (database.pardus in CWD) or in-memory
+```
+
+### Helper vs Binary: What's the Difference?
+
+| Command | Behavior |
+|---------|----------|
+| `pardus` | Helper script that ensures `~/.pardus/pardus-rag.db` exists and opens it |
+| `pardusdb` (no args) | REPL with in-memory DB or project `database.pardus` if found in CWD |
+| `pardusdb <path>` | Opens specific file, reads SQL from stdin until `quit` |
 
 ### REPL Commands
 

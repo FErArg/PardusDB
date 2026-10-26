@@ -40,6 +40,30 @@ export interface InsertOptions {
   table?: string;
 }
 
+// ==================== SQL Safety Helpers ====================
+
+const IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+function validateIdentifier(name: string): string {
+  if (!name || !IDENTIFIER_RE.test(name)) {
+    throw new QueryError(`Invalid SQL identifier: '${name}'. Only alphanumeric characters and underscores are allowed.`);
+  }
+  if (name.length > 128) {
+    throw new QueryError(`Identifier too long (max 128 characters): '${name}'`);
+  }
+  return name;
+}
+
+function escapeSqlString(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "''")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    .replace(/\0/g, "");
+}
+
 // ==================== Errors ====================
 
 export class PardusDBError extends Error {
@@ -119,7 +143,7 @@ export class PardusDB {
 
     throw new ConnectionError(
       "pardusdb binary not found in PATH. Please install PardusDB first: " +
-      "git clone https://github.com/FErArg/PardusDB && cd pardusdb && ./setup.sh"
+      "git clone https://github.com/FErArg/pardus-rag-ng && cd pardusdb && ./setup.sh"
     );
   }
 
@@ -201,6 +225,7 @@ export class PardusDB {
       }
     }
 
+    validateIdentifier(name);
     const ifNotExistsStr = ifNotExists ? "IF NOT EXISTS " : "";
     const sql = `CREATE TABLE ${ifNotExistsStr}${name} (${columns.join(", ")})`;
     await this.execute(sql);
@@ -226,6 +251,7 @@ export class PardusDB {
    * Drop a table.
    */
   async dropTable(name: string, ifExists: boolean = true): Promise<void> {
+    validateIdentifier(name);
     const ifExistsStr = ifExists ? "IF EXISTS " : "";
     await this.execute(`DROP TABLE ${ifExistsStr}${name}`);
     this.tables.delete(name);
@@ -278,6 +304,7 @@ export class PardusDB {
 
     if (metadata) {
       for (const [key, val] of Object.entries(metadata)) {
+        validateIdentifier(key);
         columns.push(key);
         values.push(this.formatValue(val));
       }
@@ -420,6 +447,7 @@ export class PardusDB {
 
     const setParts: string[] = [];
     for (const [key, val] of Object.entries(metadata)) {
+      validateIdentifier(key);
       setParts.push(`${key} = ${this.formatValue(val)}`);
     }
 
@@ -475,7 +503,7 @@ export class PardusDB {
 
   private formatValue(value: unknown): string {
     if (typeof value === "string") {
-      return `'${value}'`;
+      return `'${escapeSqlString(value)}'`;
     } else if (typeof value === "boolean") {
       return value ? "true" : "false";
     } else if (value === null || value === undefined) {

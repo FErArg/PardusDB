@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::error::{MarsError, Result};
 use crate::schema::Value;
-use crate::parser::{parse, Command, WhereClause, Condition, ComparisonOp, OrderBy, SelectColumn, ConditionValue, BoolConnector};
+use crate::parser::{parse, Command, WhereClause, Condition, ComparisonOp, OrderBy, SelectColumn, ConditionValue};
 
 /// A prepared statement template that can be reused with different parameters
 #[derive(Clone, Debug)]

@@ -8,7 +8,7 @@ fn test_parse_create_table() {
     let cmd = parse(sql).unwrap();
 
     match cmd {
-        Command::CreateTable { name, columns } => {
+        Command::CreateTable { name, columns, .. } => {
             assert_eq!(name, "users");
             assert_eq!(columns.len(), 2);
             assert_eq!(columns[0].name, "id");
@@ -26,7 +26,7 @@ fn test_parse_create_table_with_vector() {
     let cmd = parse(sql).unwrap();
 
     match cmd {
-        Command::CreateTable { name, columns } => {
+        Command::CreateTable { name, columns, .. } => {
             assert_eq!(name, "docs");
             assert_eq!(columns.len(), 2);
             assert_eq!(columns[0].data_type, ColumnType::Vector(768));
@@ -109,8 +109,8 @@ fn test_parse_select_columns() {
     match cmd {
         Command::Select { table, columns, limit, .. } => {
             assert_eq!(table, "users");
-            assert!(matches!(columns[0], SelectColumn::Column { name: ref s, alias: _ } if s == "name"));
-            assert!(matches!(columns[1], SelectColumn::Column { name: ref s, alias: _ } if s == "age"));
+            assert!(matches!(columns[0], SelectColumn::Column(ref s) if s == "name"));
+            assert!(matches!(columns[1], SelectColumn::Column(ref s) if s == "age"));
             assert_eq!(limit, Some(10));
         }
         _ => panic!("Expected Select"),

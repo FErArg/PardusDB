@@ -5,102 +5,185 @@ All notable changes to PardusDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.21] - 2026-05-02
+## [Unreleased]
 
 ### Changed
 
-- **Tmp directory conversion for file ingestion**: All document ingestion (`handle_import_text`, `handle_ingest_chunked`, `_process_ingest_job` via `handle_ingest_async`) now converts files to Markdown in a local `tmp/` directory before database insertion. This avoids timeout issues during the conversion step by decoupling file parsing from database ingestion. The tmp directory is cleaned up only after successful DB confirmation, never before.
+- **MCP ingestion path resolution** (`mcp/src/server.py`): `pardusdb_import_text`, `pardusdb_ingest_chunked`, and `pardusdb_ingest_async` now resolve relative file and directory paths inside the MCP project root, search recursively when a relative path is not found directly, reject `../` escapes and symlinks outside the root, and require a more specific path when multiple matches exist. Absolute paths remain explicit and may point outside the project root.
 
-### Added
-
-- **`_ensure_tmp_dir()`**: Creates `./tmp` base directory if not exists
-- **`_create_tmp_uuid_dir()`**: Creates unique `tmp/{uuid}/` directories for isolation between concurrent operations
-- **`_convert_to_markdown()`**: Converts any supported file type to markdown in the output directory
-- **`_cleanup_tmp_dir()`**: Removes tmp directory using `shutil.rmtree`
-- **Debug path preservation**: On ingestion errors, the tmp directory is preserved and its path exposed in the error message via `[debug] tmp preserved at: {path}`
+## [0.4.33] - 2026-06-02
 
 ### Fixed
 
-- **Timeout issue on large file ingestion**: Files are now converted to markdown in tmp before parsing, allowing the MCP server to handle larger files without triggering request timeouts.
-
-## [0.4.20] - 2026-05-01
-
-### Added
-
-- **`pardusdb_ingest_async`**: New async MCP tool for large document ingestion. Starts processing in background thread and returns job_id immediately, avoiding timeout issues with large PDFs (50MB+). Uses batch multi-VALUES INSERT (100 chunks per call) to reduce subprocess calls.
-- **`pardusdb_ingest_status`**: New MCP tool to poll status of async ingest jobs. Returns progress (chunks processed/total), inserted count, skipped duplicates, elapsed time, and any errors.
-- **Batch multi-VALUES INSERT**: `ingest_async` and `_process_ingest_job` now use batch INSERT with 100 chunks per SQL call, reducing N subprocess calls to N/100.
-
-### Fixed
-
-- **Timeout issue with large PDFs**: The `ingest_async` tool processes in background thread so MCP client timeout (60s) is not exceeded. Client polls for status.
-
-## [0.4.19] - 2026-05-01
-
-### Added
-
-- **`pardusdb_ingest_joplin`**: New MCP tool to ingest Joplin notes into PardusDB with smart sentence-aware chunking. Use after `joplin_read_note` to pass note content, title, tags, and timestamps. Reuses `smart_chunk` for semantic coherence and skips duplicate chunks by content hash.
-- **`smart_chunk()` function**: Sentence-aware text chunking with configurable target characters and overlap for better semantic coherence.
-- **`pardusdb_ingest_chunked`**: New MCP tool for smart sentence-aware document ingestion from files.
-- **Project database auto-discovery**: When running `pardusdb` or `pardus` with no args in a directory containing `database.pardus`, automatically opens that database instead of creating a new in-memory one. Creates `.database.pardusdb` marker file with timestamps and optionally adds `*.pardus` to `.gitignore`.
-- **MCP auto-discovery**: MCP server now auto-discovers `database.pardus` in CWD on startup. If found, opens and verifies integrity. If not found, creates it automatically.
-
-### Fixed
-
-- **SQL parser AS alias support** (`src/parser.rs`): Parser now correctly handles `SELECT column AS alias` syntax. Previously, aliases like `SELECT id AS my_id FROM table` would fail with "Expected 'FROM', got 'AS'". The parser now captures the alias in `SelectColumn::Column { name, alias }` and uses it in GROUP BY output and aggregate column naming.
-- **MCP server save handling** (`mcp/src/server.py`): Added explicit `save` command before `quit` in subprocess calls to ensure data is persisted to disk after each operation. Previously, if the subprocess didn't gracefully handle stdin closure, saves might not complete.
-
-## [0.4.18] - 2026-05-01
-
-### Fixed
-
-- **IndentationError in `get_table_schema`** (`mcp/src/server.py`): Fixed 4-space over-indent on line that sets `schema["row_count"]` inside the try block. The error caused the MCP server to crash with "unexpected indent" when calling any tool that accessed table metadata.
-
-## [0.4.17] - 2026-05-01
+- **Semantic search now excludes parent rows and zero vectors** (`src/table.rs`, `src/database.rs`, `src/concurrent.rs`): `SIMILARITY` queries no longer return irrelevant parent rows with zero embeddings that contaminated search results. The engine now filters out rows where `parent_doc_id IS NULL` (parent metadata rows) and rows with all-zero vectors before ranking by distance.
+- **Similarity queries now respect non-vector WHERE conditions** (`src/table.rs`, `src/database.rs`, `src/concurrent.rs`): Compound `WHERE` clauses combining `SIMILARITY` with text filters (e.g., `WHERE category = 'docs' AND embedding SIMILARITY [...]`) now correctly apply all conditions instead of ignoring non-similarity predicates.
+- **Similarity dimension mismatch no longer panics** (`src/table.rs`): Query vectors with a dimension different from the table's vector dimension now return a proper `DimensionMismatch` error instead of panicking at runtime.
 
 ### Changed
 
-- **Bumped version** to 0.4.17 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
+- **Version bump to 0.4.33** (`Cargo.toml`, `sdk/python/pyproject.toml`, `sdk/typescript/pardusdb/package.json`, `setup.sh`, `setup-macos.sh`, `install.sh`, `install-macos.sh`, `README.md`, `INSTALL.md`): Updated package, installer, and documentation references for the new release.
+
+## [0.4.32] - 2026-06-02
+
+### Fixed
+
+- **MCP semantic search stats response** (`mcp/src/server.py`): `pardusdb_search_text` now reads token savings from computed stats after updating counters, so semantic search no longer fails with `Error searching: 'savings_percent'` when returning `session_savings_percent`.
+
+### Changed
+
+- **Version bump to 0.4.32** (`Cargo.toml`, `sdk/python/pyproject.toml`, `sdk/typescript/pardusdb/package.json`, `setup.sh`, `setup-macos.sh`, `install.sh`, `install-macos.sh`, `README.md`, `INSTALL.md`): Updated package, installer, and documentation references for the new release.
+
+## [0.4.31] - 2026-06-02
+
+### Fixed
+
+- **`CREATE TABLE IF NOT EXISTS` compatibility** (`src/parser.rs`, `src/database.rs`, `src/concurrent.rs`, `tests/sql_parser_test.rs`): The SQL parser and both database execution paths now accept `CREATE TABLE IF NOT EXISTS ...`, matching the Python and TypeScript SDKs and making idempotent table creation work end-to-end.
+- **UNIQUE index restoration after reload** (`src/table.rs`, `src/database.rs`, `src/concurrent.rs`): Table reload now rebuilds in-memory UNIQUE indexes from persisted rows instead of restoring rows directly into the hashmap, so UNIQUE constraints remain enforced after reopening a `.pardus` database.
+- **Stable similarity-search row mapping after deletes** (`src/table.rs`): Similarity search no longer assumes `graph_id + 1 == row_id`. `Table` now tracks graph-to-row mappings explicitly, so deleting rows and inserting new ones cannot return the wrong row when graph node IDs are recycled.
+
+### Changed
+
+- **Version bump to 0.4.31** (`Cargo.toml`, `sdk/python/pyproject.toml`, `sdk/typescript/pardusdb/package.json`, `setup.sh`, `setup-macos.sh`, `install.sh`, `install-macos.sh`, `README.md`, `INSTALL.md`): Updated package, installer, and documentation references for the new release.
+- **README accuracy** (`README.md`): Clarified `CREATE TABLE IF NOT EXISTS` support and adjusted the transaction claim to match the current programmatic API surface.
+- **macOS binary naming alignment** (`setup-macos.sh`, `README.md`, `INSTALL.md`, `install-macos.sh`): Standardized the macOS artifact name on `darwin-arm64` so the source installer, precompiled installer, and docs all reference the same file.
+
+## [0.4.30] - 2026-05-28
 
 ### Security
 
-- **Path traversal fix in MCP server**: Added symlink resolution and directory boundary validation in `handle_import_text` to prevent reading files outside the target directory via malicious symlinks.
+- **SQL injection prevention in MCP server** (`mcp/src/server.py`): `handle_execute_sql` now validates SQL commands against a whitelist of allowed prefixes (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `DROP`, `SHOW`, etc.) before execution. Arbitrary or dangerous commands are rejected.
+- **SQL injection prevention in Python SDK** (`sdk/python/pardusdb/client.py`): Added `_escape_sql_string()` to escape single quotes, backslashes, and control characters in metadata string values. Added `_validate_identifier()` to enforce alphanumeric+underscore identifiers for table and column names. Applied to `insert()`, `update()`, `create_table()`, and `drop_table()`.
+- **SQL injection prevention in TypeScript SDK** (`sdk/typescript/pardusdb/src/index.ts`): Added `escapeSqlString()` and `validateIdentifier()` helpers. `formatValue()` now escapes string values. All table/column name inputs are validated. Applied to `createTable()`, `dropTable()`, `insert()`, `update()`.
+- **Path traversal prevention** (`mcp/src/server.py`): Added `_sanitize_path()` that resolves paths and rejects `..` components. Applied to `handle_create_database`, `handle_open_database`, `handle_ingest_chunked`, and `handle_ingest_async`.
+- **Deserialization safety** (`src/database.rs`, `src/concurrent.rs`): Added `MAX_TABLE_SIZE` limit (10 GB) to prevent out-of-memory attacks via crafted `.pardus` files. Files with oversized table data are rejected during load.
+- **File permissions** (`src/database.rs`, `src/concurrent.rs`): Database files are now created with `0o600` permissions (owner read/write only) on Unix systems, preventing other users from reading potentially sensitive data.
 
 ### Fixed
 
-- **Regex match verification in MCP server**: Added `parse_count_from_result()` helper function to safely handle regex operations that could previously crash on malformed output. Fixed 6+ locations where `m.group()` was called without verifying `m` was not None.
-
-### Performance
-
-- **Python SDK `_execute()` optimization**: Eliminated unnecessary temporary file creation by piping commands directly to subprocess stdin. Removed unused `tempfile` and `json` imports.
-- **Python SDK `insert_batch()` optimization**: Rewrote to generate single multi-VALUES SQL statement instead of N individual inserts, reducing N subprocess calls to 1.
-- **Rust `graph.rs` optimization**: Changed `to_prune` from `Vec` to `HashSet` for O(1) membership testing instead of O(n) linear search.
-
-### Added
-
-- **New binary**: `bin/pardus-v0.4.17` (Linux x86_64).
-
-## [0.4.16] - 2026-05-01
+- **Poisoned lock handling** (`src/concurrent.rs`): RwLock acquisitions in `Connection` methods now return `MarsError::Poison` instead of panicking when a lock is poisoned. Public accessors (`read()`, `write()`, `with_read()`, `with_write()`) retain `unwrap()` with documented panic behavior.
+- **NaN distance safety** (`src/graph.rs:234`): `partial_cmp().unwrap()` replaced with `partial_cmp().unwrap_or(Ordering::Equal)` to prevent panics on NaN/Inf distance values.
+- **Broken pipe safety** (`src/main.rs:192`): `stdout().flush().unwrap()` replaced with `let _ = stdout().flush()` to prevent panics when piping REPL output.
+- **Parser safety** (`src/parser.rs:1073`): `chars().next().unwrap()` in `advance()` replaced with safe `if let Some(ch)` pattern.
+- **Having clause safety** (`src/database.rs:690`): `idx.unwrap()` after `is_none()` check replaced with `let Some(idx)` pattern.
+- **Group by safety** (`src/database.rs:364`): `group_by.unwrap()` after `is_some()` check replaced with `if let Some(group_cols)` pattern.
 
 ### Changed
 
-- **Bumped version** to 0.4.16 across Cargo.toml, setup.sh, install.sh, install-macos.sh, SDKs, and MCP server.
-- **Updated repository URL**: Changed from `https://github.com/pardus-ai/pardusdb` to `https://github.com/FErArg/PardusDB` across all documentation and configuration files.
+- **Consolidated aggregate logic** (`src/database.rs`): Extracted `compute_aggregate()` helper function shared by `execute_aggregates()` and `execute_group_by()`, eliminating ~60 lines of duplicated aggregate computation code.
+- **Consolidated value comparison** (`src/schema.rs`, `src/table.rs`, `src/database.rs`): Moved `values_equal()` and `values_compare()` to `src/schema.rs` as public free functions. `Table` methods and `Database` having-clause helpers now delegate to these shared functions, eliminating duplicate implementations.
+
+## [0.4.29] - 2026-05-07
 
 ### Fixed
 
-- **skill.md reescrito**: Corregida información desactualizada con:
-  - URL correcta del repositorio
-  - Comandos REPL correctos (`.create`, `.open`, `.save`, `.tables`, `.clear`, `.cls`)
-  - Alias documentados (`quit` / `exit` / `q`)
-  - API Rust correcta (`execute`, `query`)
-  - Python SDK documentado (`create_table`, `insert`, `search`)
-  - 15 herramientas MCP completas incluyendo `pardusdb_import_status`
+- **MCP server startup crash** (`mcp/src/server.py`): Fixed an issue where opening opencode in a directory containing `database.pardus` would crash the MCP server before it could establish the stdio transport, resulting in a `-32000 connection closed` error. `PardusDBClient` no longer runs database discovery or integrity verification at module-import time. Instead, discovery is deferred to the first `execute()` call and failures are silently swallowed, allowing the MCP server to start and handle subsequent tool calls gracefully even when `pardusdb` is unavailable or the database file is corrupt.
 
 ### Added
 
-- **`pardusdb_import_status`**: Nueva herramienta MCP para ver y reiniciar historial de importaciones.
-- **Nuevo binario compilado**: `bin/pardus-v0.4.16` (Linux x86_64).
+- **macOS source installer**: Added `setup-macos.sh` for macOS source installs without changing the Linux/general `setup.sh` flow.
+
+### Fixed
+
+- **macOS MCP package installation**: `setup-macos.sh` validates Python 3.10+, recreates the MCP virtual environment with the selected Python, installs `mcp` with `python -m pip`, and verifies `from mcp.server import Server` so MCP install failures are surfaced with pip output instead of hidden warnings.
+- **macOS default database creation**: `setup-macos.sh` no longer initializes `~/.pardus/pardus-rag.db` during installation; the generated `pardus` helper still creates it lazily on first use.
+- **macOS install docs**: Updated README and INSTALL instructions to recommend `setup-macos.sh` for macOS source builds and reserve `install-macos.sh` for precompiled macOS binaries.
+
+## [0.4.27] - 2026-05-07
+
+### Fixed
+
+- **setup.sh wrapper**: Now copies robust `mcp/run_pardusdb_mcp.sh` instead of generating simple wrapper. The robust wrapper has fallback logic, path verification, and better error messages.
+
+## [0.4.26] - 2026-05-07
+
+### Fixed
+
+- **run_mcp.sh wrapper path** (`setup.sh`, `install-macos.sh`): Changed from `$MCP_DIR/...` to hardcoded `$HOME/.pardus/mcp/...` paths. The heredoc uses single quotes so `$MCP_DIR` was being literally written as empty string at runtime.
+
+## [0.4.25] - 2026-05-07
+
+### Changed
+
+- **setup.sh MCP installation**: Unified to use venv + wrapper approach. `install_mcp()` now creates `$MCP_DIR/venv/`, copies all `*.py` files to `src/`, creates `run_mcp.sh` wrapper, and installs packages in the venv. `install_document_dependencies()` and `install_sentence_transformers()` also install into the venv when available.
+- **opencode.json configuration**: Now uses `run_mcp.sh` wrapper instead of `python3 server.py` directly (in setup.sh).
+
+## [0.4.24] - 2026-05-07
+
+### Fixed
+
+- **macOS MCP wrapper filename** (`install-macos.sh`): Fixed `configure_opencode()` to check for `run_mcp.sh` instead of `run_pardusdb_mcp.sh`. The wrong filename caused OpenCode MCP configuration to be skipped on macOS. Also corrected the echo message that listed the wrong wrapper filename.
+- **macOS installation docs**: Clarified that `setup.sh --install` is the recommended way to install on macOS (compiles natively), while `install-macos.sh` requires a pre-built binary.
+
+## [0.4.23] - 2026-05-06
+
+### Added
+
+- **Model context auto-update from litellm**: New `mcp/src/model_fetch.py` module that fetches the latest model context windows from litellm GitHub repository. Data is cached to `~/.pardus/mcp_model_context.json` for offline use.
+- **`refresh_model_context` MCP tool**: New tool that manually refreshes the model context cache from litellm. Use this when you need the most up-to-date model information.
+
+### Changed
+
+- **`set_model()` auto-refresh**: When `set_model()` fails to find a model locally, it now auto-refreshes the model context from litellm and retries before returning an error.
+
+## [0.4.22] - 2026-05-06
+
+### Fixed
+
+- **MCP wrapper path mismatch**: Fixed install scripts to copy all source files from `mcp/src/*.py` instead of just `server.py`. This fixes `ModuleNotFoundError` for `model_context` module.
+- **MCP server import fix** (`mcp/src/server.py`): Added `sys.path` insertion before imports to ensure `model_context` module is found when server runs as a script.
+- **Uninstall cleanup**: Added removal of `pardusdb` entry from `opencode.json` during uninstall (both Linux and macOS installers).
+
+### Changed
+
+- **OpenCode MCP configuration**: OpenCode config now uses `run_pardusdb_mcp.sh` wrapper script instead of calling `python3 server.py` directly. This ensures proper venv activation on macOS.
+
+## [0.4.19] - 2026-05-02
+
+### Changed
+
+- **MCP robustness improvements**: Additional stability improvements for MCP server subprocess communication.
+
+## [0.4.18] - 2026-05-02
+
+### Fixed
+
+- **REPL stdin EOF auto-save** (`src/main.rs:run_with_file`): Fixed an issue where the REPL would hang indefinitely when stdin pipe did not properly signal EOF after `quit`. The REPL now auto-saves and exits cleanly when the input stream ends without an explicit `quit` command.
+
+### Changed
+
+- **MCP robustness**: Improved the REPL's behavior when used with subprocess pipes (MCP server). Auto-save ensures data is not lost even if the calling process terminates abnormally.
+
+## [0.4.17] - 2026-05-02
+
+### Changed
+
+- **MarkItDown integration**: Replaced all custom file parsers (pypdf, python-docx, openpyxl, xlrd) with Microsoft MarkItDown library for document conversion. The MCP server now uses MarkItDown's `convert()` API to convert PDF, DOCX, PPTX, XLSX, HTML, EPUB and other formats to Markdown before chunking. This provides better text extraction quality and supports more file formats.
+- **Extended file format support**: Added support for `.pptx`, `.ppt`, `.doc`, `.html`, `.htm`, `.epub` via MarkItDown.
+- **Simplified installation**: Removed interactive prompts from `install_document_dependencies()`. MarkItDown and its dependencies are now installed automatically without user interaction.
+
+### Removed
+
+- **Individual document library dependencies**: pypdf, python-docx, openpyxl, and xlrd are no longer installed separately as MarkItDown handles these formats internally.
+
+## [0.4.16] - 2026-05-01
+
+### Fixed
+
+- **Batch insert centroid bug** (`graph.rs:insert_batch`): The centroid calculation formula only worked for single inserts. Fixed to use proper batch formula: `centroid_new = (centroid * n_existing + sum_batch) / n_total`. This ensures accurate centroid tracking during bulk vector imports, which is critical for correct similarity search starting points.
+- **Delete unique index cleanup** (`table.rs:delete`): Fixed a bug where deleting rows did not remove values from the `unique_indexes` HashSet, causing subsequent INSERT operations with the same unique value to fail incorrectly.
+- **GraphConfig persistence** (`database.rs`, `concurrent.rs`): Fixed `GraphConfig` (graph parameters like `max_neighbors`, `ef_construction`, `ef_search`) not being persisted to disk. On file load, the graph config was always reset to defaults instead of restored from the saved file. This caused performance regression on database reload.
+- **REPL panic** (`main.rs:run_repl`): Fixed a panic that could occur when accessing the current file path if it was `None` in the REPL loop.
+
+### Changed
+
+- **GraphConfig serialization**: Added `Serialize`/`Deserialize` to `GraphConfig` and added a public `config()` getter method to `Graph` for serialization access.
+- **Code cleanup**: Removed numerous unused imports across `graph.rs`, `table.rs`, `prepared.rs`, and `concurrent.rs` to reduce compiler warnings.
+- **Performance optimizations**: Eliminated unnecessary clones in `graph.rs:insert()` by reordering search-before-ownership. Changed `batch_insert` to use references instead of cloning vectors. Changed `reverse_prune()` to use reference instead of allocating new vector. Added stable hash functions for `Value` and `Row` to avoid string formatting in DISTINCT operations.
+- **Shell script fixes**: Fixed duplicate step counter `[1/10]` in `setup.sh`. Fixed help text in `install-macos.sh` (was referencing `./install.sh`). Removed unused variable in batch insert loop.
+
+### Known Limitations
+
+- **Vector updates**: When updating a row's vector column via `UPDATE`, the graph neighbor edges are NOT updated to reflect the new vector position. For correct similarity search results after vector changes, delete and re-insert the row instead.
 
 ## [0.4.15] - 2026-04-28
 
@@ -302,7 +385,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TypeScript SDK**: TypeScript SDK at `sdk/typescript/pardusdb/` with npm installation. Includes type definitions and full API coverage.
 - **MCP Server**: Model Context Protocol server at `mcp/` for integration with AI agents (OpenCode, Claude Desktop, etc.). Exposes 10 tools for database operations.
 - **Unified installation**: `setup.sh` now installs all components (binary, helper, MCP server, Python SDK, TypeScript SDK) in a single command.
-- **Collaborators section**: README now acknowledges project contributors (FErArg, Deepseek, Minimax AI, Kimi).
+- **Collaborators section**: README now acknowledges project contributors (FErArg, Deepseek, Miramax, Kimi).
 
 ### Changed
 

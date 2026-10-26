@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="0.4.21"
+VERSION="0.4.33"
 BINARY_NAME="pardusdb"
 HELPER_NAME="pardus"
 OS=$(uname -s)
@@ -171,55 +171,42 @@ install_mcp() {
         return
     fi
 
-    mkdir -p "$MCP_DIR"
+    mkdir -p "$MCP_DIR/src"
 
-    cp "$SCRIPT_DIR/mcp/src/server.py" "$MCP_DIR/"
+    cp "$SCRIPT_DIR/mcp/src/"*.py "$MCP_DIR/src/"
+    cp "$SCRIPT_DIR/mcp/run_pardusdb_mcp.sh" "$MCP_DIR/"
+    chmod +x "$MCP_DIR/run_pardusdb_mcp.sh"
 
-    echo "  Instalando paquete MCP de Python..."
+    echo "  Creando virtual environment..."
+    python3 -m venv "$MCP_DIR/venv"
 
-    # Detectar plataforma para flags de pip
-    local pip_extra=""
-    if [ "$(uname -s)" = "Linux" ]; then
-        pip_extra="--break-system-packages"
-    fi
+    "$MCP_DIR/venv/bin/pip" install --upgrade pip -q
 
-    if command -v pip3 &> /dev/null; then
-        PIP_CMD="pip3"
-    elif command -v pip &> /dev/null; then
-        PIP_CMD="pip"
+    if "$MCP_DIR/venv/bin/pip" install mcp -q 2>/dev/null; then
+        mcp_state="OK"
     else
-        PIP_CMD="python3 -m pip"
+        echo "  ADVERTENCIA: No se pudo instalar el paquete mcp"
+        mcp_state="fallo"
     fi
-
-    $PIP_CMD install mcp --quiet $pip_extra || echo "  ADVERTENCIA: No se pudo instalar el paquete mcp"
-
-    mcp_state=$(python3 -c "from mcp.server import Server; print('OK')" 2>/dev/null || echo "fallo")
     echo "  - mcp (Python package): $mcp_state"
 
-    echo "  MCP server instalado en: $MCP_DIR/server.py"
+    echo "  MCP server instalado en: $MCP_DIR/src/server.py"
+    echo "  Wrapper: $MCP_DIR/run_pardusdb_mcp.sh"
 }
 
 install_document_dependencies() {
-    echo "[5/9] Instalando dependencias para importar documentos..."
+    echo "[5/9] Instalando MarkItDown para importacion de documentos..."
 
-    echo -n "  Instalar librerias para importar PDF, DOCX, XLSX, XLS? (s/N): "
-    read -r respuesta
-    if [ "$respuesta" != "s" ] && [ "$respuesta" != "S" ]; then
-        echo "  Omitido. Los formatos faltantes se saltearan al importar."
-        return
+    if [ -d "$MCP_DIR/venv" ]; then
+        "$MCP_DIR/venv/bin/pip" install 'markitdown[all]' -q 2>/dev/null || \
+        "$MCP_DIR/venv/bin/pip" install markitdown -q 2>/dev/null || \
+        echo "  ADVERTENCIA: No se pudo instalar markitdown"
+
+        md_state=$("$MCP_DIR/venv/bin/python" -c "from markitdown import MarkItDown; print('OK')" 2>/dev/null || echo "fallo")
+    else
+        md_state="fallo (sin venv)"
     fi
-
-    pip3 install pypdf --quiet 2>/dev/null || pip3 install pypdf --quiet --break-system-packages 2>/dev/null
-    echo "  - pypdf (PDF): $(python3 -c 'import pypdf; print("OK")' 2>/dev/null || echo 'fallo')"
-
-    pip3 install python-docx --quiet 2>/dev/null || pip3 install python-docx --quiet --break-system-packages 2>/dev/null
-    echo "  - python-docx (DOCX): $(python3 -c 'import docx; print("OK")' 2>/dev/null || echo 'fallo')"
-
-    pip3 install openpyxl --quiet 2>/dev/null || pip3 install openpyxl --quiet --break-system-packages 2>/dev/null
-    echo "  - openpyxl (XLSX): $(python3 -c 'import openpyxl; print("OK")' 2>/dev/null || echo 'fallo')"
-
-    pip3 install xlrd --quiet 2>/dev/null || pip3 install xlrd --quiet --break-system-packages 2>/dev/null
-    echo "  - xlrd (XLS antiguo): $(python3 -c 'import xlrd; print("OK")' 2>/dev/null || echo 'fallo')"
+    echo "  - markitdown: $md_state"
 }
 
 install_sentence_transformers() {
@@ -232,7 +219,11 @@ install_sentence_transformers() {
         return
     fi
 
-    pip3 install sentence-transformers --quiet 2>/dev/null || pip3 install sentence-transformers --quiet --break-system-packages 2>/dev/null
+    if [ -d "$MCP_DIR/venv" ]; then
+        "$MCP_DIR/venv/bin/pip" install sentence-transformers -q 2>/dev/null
+    else
+        pip3 install sentence-transformers --quiet 2>/dev/null || pip3 install sentence-transformers --quiet --break-system-packages 2>/dev/null
+    fi
 
     CACHE_DIR="$HOME/.cache/huggingface/hub"
     MODEL_DIR="models--sentence-transformers--all-MiniLM-L6-v2"
@@ -246,7 +237,7 @@ install_sentence_transformers() {
 configure_opencode() {
     echo "[7/9] Configurando OpenCode..."
 
-    if [ ! -f "$MCP_DIR/server.py" ]; then
+    if [ ! -f "$MCP_DIR/run_pardusdb_mcp.sh" ]; then
         echo "  MCP server no instalado, saltando configuracion OpenCode"
         return
     fi
@@ -272,7 +263,7 @@ configure_opencode() {
         echo "  Skill copiado: $OPCODE_SKILLS_DIR/pardusdb.md"
     fi
 
-    local MCP_PATH="/home/$REAL_USER/.pardus/mcp/server.py"
+    local MCP_PATH="$MCP_DIR/run_pardusdb_mcp.sh"
 
     if [ -f "$OPCODE_CONFIG" ]; then
         if python3 -c "
@@ -294,7 +285,7 @@ if 'mcp' not in cfg:
     cfg['mcp'] = {}
 cfg['mcp']['pardusdb'] = {
     'type': 'local',
-    'command': ['python3', '$MCP_PATH'],
+    'command': ['$MCP_PATH'],
     'enabled': True
 }
 with open('$OPCODE_CONFIG', 'w') as f:
@@ -309,7 +300,7 @@ with open('$OPCODE_CONFIG', 'w') as f:
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["python3", "$MCP_PATH"],
+      "command": ["$MCP_PATH"],
       "enabled": true
     }
   }
@@ -375,10 +366,8 @@ verify_installation() {
     echo "  pardusdb mi.db            # Abre archivo especifico"
     echo ""
     echo "Dependencias Python para importacion de documentos:"
-    for pkg in pypdf docx openpyxl xlrd; do
-        state=$(python3 -c "import $pkg; print('OK')" 2>/dev/null || echo "no instalado")
-        echo "  - $pkg: $state"
-    done
+    md_state=$(python3 -c "from markitdown import MarkItDown; print('OK')" 2>/dev/null || echo "no instalado")
+    echo "  - markitdown: $md_state"
     echo ""
     echo "Embeddings automaticos:"
     st_state=$(python3 -c "from sentence_transformers import SentenceTransformer; print('OK')" 2>/dev/null || echo "no instalado")
@@ -432,6 +421,28 @@ do_uninstall() {
         rm -rf "$CONFIG_DIR"
         echo "  Eliminado: $CONFIG_DIR/"
         removed=1
+    fi
+
+    OPCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+    if [ -f "$OPCODE_CONFIG" ]; then
+        if python3 -c "
+import json
+with open('$OPCODE_CONFIG') as f:
+    cfg = json.load(f)
+changed = False
+if 'mcp' in cfg and 'pardusdb' in cfg['mcp']:
+    del cfg['mcp']['pardusdb']
+    changed = True
+    if not cfg['mcp']:
+        del cfg['mcp']
+if changed:
+    with open('$OPCODE_CONFIG', 'w') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+" 2>/dev/null; then
+            echo "  Limpiado: $OPCODE_CONFIG (entrada pardusdb)"
+            removed=1
+        fi
     fi
 
     if [ $removed -eq 0 ]; then

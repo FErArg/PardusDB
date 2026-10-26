@@ -16,6 +16,7 @@ use crate::schema::{ColumnType, Value};
 #[derive(Clone, Debug)]
 pub enum Command {
     CreateTable {
+        if_not_exists: bool,
         name: String,
         columns: Vec<ColumnDef>,
     },
@@ -82,7 +83,7 @@ pub enum JoinColumn {
 #[derive(Clone, Debug)]
 pub enum SelectColumn {
     All,                           // *
-    Column { name: String, alias: Option<String> },  // column_name or column_name AS alias
+    Column(String),                // column_name
     Aggregate { func: AggregateFunc, column: String, alias: Option<String> },
 }
 
@@ -189,6 +190,17 @@ impl<'a> Parser<'a> {
     fn parse_create(&mut self) -> Result<Command> {
         self.expect_keyword("TABLE")?;
         self.skip_whitespace();
+
+        let if_not_exists = if self.peek_keyword_upper() == "IF" {
+            self.read_keyword()?;
+            self.expect_keyword("NOT")?;
+            self.expect_keyword("EXISTS")?;
+            self.skip_whitespace();
+            true
+        } else {
+            false
+        };
+
         let name = self.read_identifier()?;
 
         self.skip_whitespace();
@@ -252,7 +264,7 @@ impl<'a> Parser<'a> {
         }
 
         self.skip_trailing_semicolon();
-        Ok(Command::CreateTable { name, columns })
+        Ok(Command::CreateTable { if_not_exists, name, columns })
     }
 
     // ==================== DROP TABLE ====================
@@ -369,7 +381,7 @@ impl<'a> Parser<'a> {
                         column: column_name.clone(),
                     });
                     // Also add as SelectColumn for non-JOIN case
-                    select_columns.push(SelectColumn::Column { name: column_name, alias: None });
+                    select_columns.push(SelectColumn::Column(column_name));
                 } else {
                     // Regular column
                     // Check if it's an aggregate function
@@ -400,17 +412,7 @@ impl<'a> Parser<'a> {
                             alias: None,
                         });
                     } else {
-                        select_columns.push(SelectColumn::Column { name: col.clone(), alias: None });
-                        // Check for AS alias
-                        self.skip_whitespace();
-                        if self.peek_keyword_upper() == "AS" {
-                            self.read_keyword()?;
-                            self.skip_whitespace();
-                            let alias = self.read_identifier()?;
-                            if let SelectColumn::Column { name: _, alias: a @ None } = select_columns.last_mut().unwrap() {
-                                *a = Some(alias);
-                            }
-                        }
+                        select_columns.push(SelectColumn::Column(col));
                     }
                 }
 
@@ -606,18 +608,7 @@ impl<'a> Parser<'a> {
 
                 Ok(SelectColumn::Aggregate { func, column, alias })
             }
-            _ => {
-                let name = self.read_identifier()?;
-                self.skip_whitespace();
-                let alias = if self.peek_keyword_upper() == "AS" {
-                    self.read_keyword()?;
-                    self.skip_whitespace();
-                    Some(self.read_identifier()?)
-                } else {
-                    None
-                };
-                Ok(SelectColumn::Column { name, alias })
-            }
+            _ => Ok(SelectColumn::Column(self.read_identifier()?))
         }
     }
 
@@ -1091,7 +1082,9 @@ impl<'a> Parser<'a> {
 
     fn advance(&mut self) {
         if self.pos < self.input.len() {
-            self.pos += self.input[self.pos..].chars().next().unwrap().len_utf8();
+            if let Some(ch) = self.input[self.pos..].chars().next() {
+                self.pos += ch.len_utf8();
+            }
         }
     }
 
@@ -1270,11 +1263,27 @@ mod tests {
         let cmd = parse(sql).unwrap();
 
         match cmd {
-            Command::CreateTable { name, columns } => {
+            Command::CreateTable { if_not_exists, name, columns } => {
+                assert!(!if_not_exists);
                 assert_eq!(name, "documents");
                 assert_eq!(columns.len(), 3);
                 assert!(columns[0].primary_key);
                 assert_eq!(columns[1].data_type, ColumnType::Vector(768));
+            }
+            _ => panic!("Expected CreateTable"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_table_if_not_exists() {
+        let sql = "CREATE TABLE IF NOT EXISTS documents (id INTEGER, embedding VECTOR(3));";
+        let cmd = parse(sql).unwrap();
+
+        match cmd {
+            Command::CreateTable { if_not_exists, name, columns } => {
+                assert!(if_not_exists);
+                assert_eq!(name, "documents");
+                assert_eq!(columns.len(), 2);
             }
             _ => panic!("Expected CreateTable"),
         }

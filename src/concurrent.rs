@@ -53,14 +53,16 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::database::{ExecuteResult, TableInfo};
+use crate::database::{ExecuteResult, TableInfo, TableData};
 use crate::error::{MarsError, Result};
 use crate::graph::GraphConfig;
-use crate::parser::{parse, Command, ComparisonOp};
-use crate::schema::{Column, ColumnType, Row, Schema, Value};
+use crate::parser::{BoolConnector, Condition, ConditionValue, Command, ComparisonOp, WhereClause, parse};
+use crate::schema::{Column, ColumnType, Schema, Value};
 use crate::table::Table;
 
 /// File header with database metadata
@@ -70,14 +72,8 @@ struct DbHeader {
     pub table_count: u32,
 }
 
-/// Serialized table data
-#[derive(Serialize, Deserialize)]
-struct TableData {
-    pub schema: Schema,
-    pub rows: Vec<Row>,
-    pub centroid: Vec<f32>,
-    pub next_id: u64,
-}
+/// Maximum allowed size for a single serialized table (10 GB)
+const MAX_TABLE_SIZE: usize = 10 * 1024 * 1024 * 1024;
 
 /// Internal database state
 pub struct DatabaseInner {
@@ -167,25 +163,20 @@ impl ConcurrentDatabase {
             reader.read_exact(&mut size_buf)?;
             let size = u64::from_le_bytes(size_buf) as usize;
 
+            if size > MAX_TABLE_SIZE {
+                return Err(MarsError::InvalidFormat(
+                    format!("Table data too large: {} bytes (max {})", size, MAX_TABLE_SIZE)
+                ));
+            }
+
             let mut table_buf = vec![0u8; size];
             reader.read_exact(&mut table_buf)?;
 
             let table_data: TableData = bincode::deserialize(&table_buf)
                 .map_err(|e| MarsError::InvalidFormat(format!("Failed to deserialize table: {}", e)))?;
 
-            let mut table = Table::new(table_data.schema, GraphConfig::default())?;
-
-            for row in table_data.rows {
-                if let Some(vec_idx) = table.schema.columns.iter().position(|c| {
-                    matches!(c.data_type, ColumnType::Vector(_))
-                }) {
-                    if let Some(vec) = row.values.get(vec_idx).and_then(|v| v.as_vector()) {
-                        table.graph.insert(vec.to_vec());
-                    }
-                }
-                let id = row.id;
-                table.rows.insert(id, row);
-            }
+            let mut table = Table::new(table_data.schema, table_data.config)?;
+            table.restore_rows(table_data.rows)?;
 
             table.next_id = table_data.next_id;
             tables.insert(table.name().to_string(), table);
@@ -207,18 +198,18 @@ impl ConcurrentDatabase {
         use std::fs::OpenOptions;
         use std::io::{BufWriter, Write};
 
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let path = match &inner.path {
             Some(p) => p,
             None => return Ok(()),
         };
 
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        let file = opts.open(path)?;
 
         let mut writer = BufWriter::new(file);
 
@@ -235,6 +226,7 @@ impl ConcurrentDatabase {
                 rows: table.rows.values().cloned().collect(),
                 centroid: table.graph.centroid().to_vec(),
                 next_id: table.next_id,
+                config: table.graph.config().clone(),
             };
 
             let serialized = bincode::serialize(&table_data)
@@ -260,16 +252,25 @@ impl ConcurrentDatabase {
     }
 
     /// Get a read guard for direct access.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned (a thread panicked while holding the lock).
     pub fn read(&self) -> RwLockReadGuard<'_, DatabaseInner> {
         self.inner.read().unwrap()
     }
 
     /// Get a write guard for direct access.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned (a thread panicked while holding the lock).
     pub fn write(&self) -> RwLockWriteGuard<'_, DatabaseInner> {
         self.inner.write().unwrap()
     }
 
     /// Execute a read operation with a read lock.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned.
     pub fn with_read<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&DatabaseInner) -> T,
@@ -279,6 +280,9 @@ impl ConcurrentDatabase {
     }
 
     /// Execute a write operation with a write lock.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned.
     pub fn with_write<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut DatabaseInner) -> T,
@@ -304,7 +308,7 @@ struct TransactionState {
 
 /// A pending operation in a transaction.
 enum PendingOperation {
-    CreateTable { name: String, columns: Vec<crate::parser::ColumnDef> },
+    CreateTable { name: String, columns: Vec<crate::parser::ColumnDef>, if_not_exists: bool },
     DropTable { name: String, if_exists: bool },
     Insert { table: String, columns: Vec<String>, values: Vec<Vec<Value>> },
     Update { table: String, assignments: Vec<(String, Value)>, where_clause: Option<crate::parser::WhereClause> },
@@ -322,8 +326,8 @@ impl<'a> Connection<'a> {
         if let Some(ref mut tx) = self.transaction {
             // Queue operation for transaction
             let pending = match command {
-                Command::CreateTable { name, columns } => {
-                    PendingOperation::CreateTable { name, columns }
+                Command::CreateTable { if_not_exists, name, columns } => {
+                    PendingOperation::CreateTable { name, columns, if_not_exists }
                 }
                 Command::DropTable { name, if_exists } => {
                     PendingOperation::DropTable { name, if_exists }
@@ -358,7 +362,9 @@ impl<'a> Connection<'a> {
 
     fn execute_command(&mut self, command: Command) -> Result<ExecuteResult> {
         match command {
-            Command::CreateTable { name, columns } => self.create_table(name, columns),
+            Command::CreateTable { if_not_exists, name, columns } => {
+                self.create_table(name, columns, if_not_exists)
+            }
             Command::DropTable { name, if_exists } => self.drop_table(name, if_exists),
             Command::Insert { table, columns, values } => self.insert_multi(table, columns, values),
             Command::Select { table, columns, where_clause, group_by, having, order_by, limit, offset, distinct } => {
@@ -399,7 +405,7 @@ impl<'a> Connection<'a> {
             .ok_or_else(|| MarsError::InvalidFormat("No transaction in progress".into()))?;
 
         let mut results = Vec::new();
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         for op in tx.operations {
             let result = self.execute_pending(&mut guard, op)?;
@@ -428,8 +434,8 @@ impl<'a> Connection<'a> {
         op: PendingOperation,
     ) -> Result<ExecuteResult> {
         match op {
-            PendingOperation::CreateTable { name, columns } => {
-                Self::create_table_inner(inner, name, columns)
+            PendingOperation::CreateTable { name, columns, if_not_exists } => {
+                Self::create_table_inner(inner, name, columns, if_not_exists)
             }
             PendingOperation::DropTable { name, if_exists } => {
                 Self::drop_table_inner(inner, name, if_exists)
@@ -450,8 +456,12 @@ impl<'a> Connection<'a> {
         inner: &mut DatabaseInner,
         name: String,
         columns: Vec<crate::parser::ColumnDef>,
+        if_not_exists: bool,
     ) -> Result<ExecuteResult> {
         if inner.tables.contains_key(&name) {
+            if if_not_exists {
+                return Ok(ExecuteResult::CreateTable { name });
+            }
             return Err(MarsError::InvalidConfig(format!("Table '{}' already exists", name)));
         }
 
@@ -463,6 +473,7 @@ impl<'a> Connection<'a> {
             let mut col = Column::new(&col_def.name, col_def.data_type);
             col.primary_key = col_def.primary_key;
             col.nullable = !col_def.not_null;
+            col.unique = col_def.unique;
             schema.columns.push(col);
 
             if is_vector {
@@ -524,18 +535,23 @@ impl<'a> Connection<'a> {
         Ok(ExecuteResult::Delete { count })
     }
 
-    fn create_table(&mut self, name: String, columns: Vec<crate::parser::ColumnDef>) -> Result<ExecuteResult> {
-        let mut guard = self.db.inner.write().unwrap();
-        Self::create_table_inner(&mut guard, name, columns)
-    }
-
     fn drop_table(&mut self, name: String, if_exists: bool) -> Result<ExecuteResult> {
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
         Self::drop_table_inner(&mut guard, name, if_exists)
     }
 
+    fn create_table(
+        &mut self,
+        name: String,
+        columns: Vec<crate::parser::ColumnDef>,
+        if_not_exists: bool,
+    ) -> Result<ExecuteResult> {
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
+        Self::create_table_inner(&mut guard, name, columns, if_not_exists)
+    }
+
     fn insert_multi(&mut self, table: String, columns: Vec<String>, values: Vec<Vec<Value>>) -> Result<ExecuteResult> {
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
         Self::insert_inner(&mut guard, table, columns, values)
     }
 
@@ -549,28 +565,22 @@ impl<'a> Connection<'a> {
         offset: Option<usize>,
         distinct: bool,
     ) -> Result<ExecuteResult> {
-        let guard = self.db.inner.read().unwrap();
+        let guard = self.db.inner.read().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let table = guard.tables.get(&table_name)
             .ok_or_else(|| MarsError::InvalidFormat(format!("Table '{}' does not exist", table_name)))?;
 
         // Check for vector similarity query
-        if let Some(wc) = where_clause {
-            for cond in &wc.conditions {
-                if cond.operator == ComparisonOp::Similar {
-                    if let crate::parser::ConditionValue::Single(Value::Vector(query_vec)) = &cond.value {
-                        let k = limit.unwrap_or(10);
-                        let results = table.select_by_similarity(query_vec, k, 100);
-                        return Ok(ExecuteResult::SelectSimilar { results });
-                    }
-                }
-            }
+        if let Some((query_vec, filter_clause)) = split_similarity_where(where_clause)? {
+            let k = limit.unwrap_or(10);
+            let results = table.select_by_similarity_filtered(&query_vec, k, 100, filter_clause.as_ref())?;
+            return Ok(ExecuteResult::SelectSimilar { results });
         }
 
         // Convert SelectColumn to column names
         let col_names: Vec<String> = columns.iter()
             .filter_map(|c| match c {
-                crate::parser::SelectColumn::Column { name, alias: _ } => Some(name.clone()),
+                crate::parser::SelectColumn::Column(name) => Some(name.clone()),
                 _ => None,
             })
             .collect();
@@ -594,7 +604,7 @@ impl<'a> Connection<'a> {
         assignments: Vec<(String, Value)>,
         where_clause: Option<&crate::parser::WhereClause>,
     ) -> Result<ExecuteResult> {
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
         Self::update_inner(&mut guard, table_name, assignments, where_clause)
     }
 
@@ -603,12 +613,12 @@ impl<'a> Connection<'a> {
         table_name: String,
         where_clause: Option<&crate::parser::WhereClause>,
     ) -> Result<ExecuteResult> {
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
         Self::delete_inner(&mut guard, table_name, where_clause)
     }
 
     fn show_tables(&self) -> Result<ExecuteResult> {
-        let guard = self.db.inner.read().unwrap();
+        let guard = self.db.inner.read().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let tables: Vec<TableInfo> = guard.tables.values()
             .map(|t| TableInfo {
@@ -628,7 +638,7 @@ impl<'a> Connection<'a> {
         vector: Vec<f32>,
         metadata: Vec<(&str, Value)>,
     ) -> Result<u64> {
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let table = guard.tables.get_mut(table_name)
             .ok_or_else(|| MarsError::InvalidFormat(format!("Table '{}' does not exist", table_name)))?;
@@ -663,7 +673,7 @@ impl<'a> Connection<'a> {
             return Ok(Vec::new());
         }
 
-        let mut guard = self.db.inner.write().unwrap();
+        let mut guard = self.db.inner.write().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let table = guard.tables.get_mut(table_name)
             .ok_or_else(|| MarsError::InvalidFormat(format!("Table '{}' does not exist", table_name)))?;
@@ -706,12 +716,12 @@ impl<'a> Connection<'a> {
         k: usize,
         ef_search: usize,
     ) -> Result<Vec<(u64, Vec<Value>, f32)>> {
-        let guard = self.db.inner.read().unwrap();
+        let guard = self.db.inner.read().map_err(|e| MarsError::Poison(e.to_string()))?;
 
         let table = guard.tables.get(table_name)
             .ok_or_else(|| MarsError::InvalidFormat(format!("Table '{}' does not exist", table_name)))?;
 
-        let results = table.select_by_similarity(query, k, ef_search);
+        let results = table.select_by_similarity(query, k, ef_search)?;
 
         Ok(results.into_iter()
             .map(|(row, dist)| (row.id, row.values, dist))
@@ -728,6 +738,56 @@ impl<'a> Connection<'a> {
     pub fn database(&self) -> &'a ConcurrentDatabase {
         self.db
     }
+}
+
+fn split_similarity_where(where_clause: Option<&WhereClause>) -> Result<Option<(Vec<f32>, Option<WhereClause>)>> {
+    let Some(where_clause) = where_clause else {
+        return Ok(None);
+    };
+
+    let similarity_conditions: Vec<_> = where_clause.conditions.iter()
+        .enumerate()
+        .filter(|(_, cond)| cond.operator == ComparisonOp::Similar)
+        .collect();
+
+    if similarity_conditions.is_empty() {
+        return Ok(None);
+    }
+
+    if similarity_conditions.len() > 1 {
+        return Err(MarsError::InvalidFormat("SIMILARITY queries support only one similarity condition".into()));
+    }
+
+    if !where_clause.connectors.iter().all(|connector| matches!(connector, BoolConnector::And)) {
+        return Err(MarsError::InvalidFormat("SIMILARITY queries only support AND connectors".into()));
+    }
+
+    let (similarity_index, similarity_condition) = similarity_conditions[0];
+    let query_vec = match &similarity_condition.value {
+        ConditionValue::Single(Value::Vector(query_vec)) => query_vec.clone(),
+        _ => {
+            return Err(MarsError::InvalidFormat(
+                "SIMILARITY condition must use a vector value".into(),
+            ));
+        }
+    };
+
+    let remaining_conditions: Vec<Condition> = where_clause.conditions.iter()
+        .enumerate()
+        .filter(|(index, _)| *index != similarity_index)
+        .map(|(_, cond)| cond.clone())
+        .collect();
+
+    let filter_clause = if remaining_conditions.is_empty() {
+        None
+    } else {
+        Some(WhereClause {
+            connectors: vec![BoolConnector::And; remaining_conditions.len().saturating_sub(1)],
+            conditions: remaining_conditions,
+        })
+    };
+
+    Ok(Some((query_vec, filter_clause)))
 }
 
 /// A scoped transaction that automatically rolls back if not committed.

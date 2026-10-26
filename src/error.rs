@@ -19,6 +19,9 @@ pub enum MarsError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+
+    #[error("Lock poisoned: {0}")]
+    Poison(String),
 }
 
 pub type Result<T> = std::result::Result<T, MarsError>;

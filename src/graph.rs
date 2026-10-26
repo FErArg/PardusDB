@@ -1,10 +1,12 @@
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::BinaryHeap;
+
+use serde::{Deserialize, Serialize};
 
 use crate::distance::{Distance, Numeric};
 use crate::node::{Candidate, Node, NodeId};
 
 /// Configuration for the graph.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphConfig {
     /// Maximum number of neighbors per node
     pub max_neighbors: usize,
@@ -71,6 +73,11 @@ where
     /// Get the number of active nodes.
     pub fn len(&self) -> usize {
         self.active_count
+    }
+
+    /// Get a clone of the graph configuration.
+    pub fn config(&self) -> GraphConfig {
+        self.config.clone()
     }
 
     /// Check if the graph is empty.
@@ -224,7 +231,7 @@ where
         }
 
         // Sort by distance
-        results.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+        results.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
         results
     }
 
@@ -282,25 +289,21 @@ where
         // Allocate node ID
         let node_id = self.allocate_node_id();
 
-        // Create new node
-        let mut new_node = Node::with_capacity(vector.clone(), max_neighbors);
-
-        // Update centroid
-        self.update_centroid_insert(&vector);
-
-        // If this is the first node, just add it
+        // If this is the first node, just add it without searching
         if self.active_count == 1 {
+            self.update_centroid_insert(&vector);
+            let new_node = Node::with_capacity(vector, max_neighbors);
             self.insert_node_at(node_id, new_node);
             return node_id;
         }
 
-        // Search for candidates
+        // Search for candidates and prune to get neighbors BEFORE taking ownership
         let candidates = self.search(&vector, search_buffer);
-
-        // Prune candidates to get neighbors
         let neighbors = self.robust_prune(&vector, &candidates, alpha, max_neighbors);
 
-        // Set neighbors for new node
+        // Now update centroid and create node with neighbors pre-set
+        self.update_centroid_insert(&vector);
+        let mut new_node = Node::with_capacity(vector, max_neighbors);
         new_node.neighbors = neighbors.clone();
         self.insert_node_at(node_id, new_node);
 
@@ -356,28 +359,42 @@ where
         let n_existing = self.active_count - batch_size;
         let n_total = self.active_count;
 
-        // Insert all nodes first (without connecting edges)
-        for (i, vector) in vectors.into_iter().enumerate() {
-            let node_id = node_ids[i];
+        // Compute the sum of all vectors in the batch
+        let batch_sum: Vec<f32> = vectors.iter()
+            .fold(Vec::new(), |mut acc, v| {
+                if acc.is_empty() {
+                    acc = v.iter().map(|&x| x.to_f32()).collect();
+                } else {
+                    for (i, &val) in v.iter().enumerate() {
+                        acc[i] += val.to_f32();
+                    }
+                }
+                acc
+            });
 
-            // Update centroid incrementally
-            let n_before = n_existing + i;
-            let n_after = n_before + 1;
-            self.centroid
-                .iter_mut()
-                .zip(vector.iter())
-                .for_each(|(c, &v)| {
-                    *c = *c * (n_before as f32 / n_after as f32) + v.to_f32() / n_after as f32;
-                });
-
-            // Create node without neighbors
-            let node = Node::with_capacity(vector, max_neighbors);
-            self.nodes.push(node);
+        // If this is the first batch, set centroid directly from batch average
+        if n_existing == 0 {
+            let batch_size_f = batch_size as f32;
+            for (c, &bs) in self.centroid.iter_mut().zip(batch_sum.iter()) {
+                *c = bs / batch_size_f;
+            }
+            // Insert all nodes without connecting edges
+            for vector in vectors.into_iter() {
+                let node = Node::with_capacity(vector, max_neighbors);
+                self.nodes.push(node);
+            }
+            return node_ids;
         }
 
-        // If this is the first batch, just return - no edges to connect
-        if n_existing == 0 {
-            return node_ids;
+        // Update centroid: centroid_new = (centroid * n_existing + sum_batch) / n_total
+        for (c, &bs) in self.centroid.iter_mut().zip(batch_sum.iter()) {
+            *c = (*c * n_existing as f32 + bs) / n_total as f32;
+        }
+
+        // Insert all nodes first (without connecting edges)
+        for vector in vectors.into_iter() {
+            let node = Node::with_capacity(vector, max_neighbors);
+            self.nodes.push(node);
         }
 
         // Now connect edges for all new nodes
@@ -385,13 +402,13 @@ where
         let mut edge_updates: Vec<(NodeId, Vec<NodeId>)> = Vec::with_capacity(batch_size);
 
         for &node_id in &node_ids {
-            let vector = self.nodes[node_id as usize].vector.as_ref().clone();
+            let vector_ref: &[T] = self.nodes[node_id as usize].vector.as_ref();
 
             // Search for candidates among existing nodes
-            let candidates = self.search(&vector, search_buffer);
+            let candidates = self.search(vector_ref, search_buffer);
 
             // Prune candidates to get neighbors
-            let neighbors = self.robust_prune(&vector, &candidates, alpha, max_neighbors);
+            let neighbors = self.robust_prune(vector_ref, &candidates, alpha, max_neighbors);
             edge_updates.push((node_id, neighbors));
         }
 
@@ -417,13 +434,15 @@ where
 
         // Handle reverse pruning for neighbors that exceeded max_neighbors
         // We do this in a separate pass
-        let mut to_prune: HashSet<NodeId> = HashSet::new();
+        let mut to_prune: Vec<NodeId> = Vec::new();
         for &node_id in &node_ids {
             if let Some(node) = self.nodes.get(node_id as usize) {
                 for &neighbor_id in &node.neighbors {
                     if let Some(neighbor) = self.nodes.get(neighbor_id as usize) {
                         if neighbor.neighbors.len() > max_neighbors {
-                            to_prune.insert(neighbor_id);
+                            if !to_prune.contains(&neighbor_id) {
+                                to_prune.push(neighbor_id);
+                            }
                         }
                     }
                 }
@@ -448,27 +467,25 @@ where
             return;
         }
 
-        // Compute distances to all neighbors
-        let candidates: Vec<Candidate> = {
-            let node = match self.get(node_id) {
-                Some(n) => n,
-                None => return,
-            };
-
-            neighbor_ids
-                .iter()
-                .filter_map(|&nid| {
-                    self.get(nid).map(|n| {
-                        let dist = Self::distance(&node.vector, &n.vector);
-                        Candidate::new(nid, dist)
-                    })
-                })
-                .collect()
+        // Get node vector for distance calculation
+        let node_vector: &[T] = match self.get(node_id) {
+            Some(n) => n.vector.as_ref(),
+            None => return,
         };
 
+        // Compute distances to all neighbors
+        let candidates: Vec<Candidate> = neighbor_ids
+            .iter()
+            .filter_map(|&nid| {
+                self.get(nid).map(|n| {
+                    let dist = Self::distance(node_vector, n.vector.as_ref());
+                    Candidate::new(nid, dist)
+                })
+            })
+            .collect();
+
         // Re-prune using the node's vector
-        let node_vector: Vec<T> = self.get(node_id).unwrap().vector.as_ref().clone();
-        let new_neighbors = self.robust_prune(&node_vector, &candidates, alpha, max_neighbors);
+        let new_neighbors = self.robust_prune(node_vector, &candidates, alpha, max_neighbors);
 
         // Update neighbor list
         if let Some(node) = self.get_mut(node_id) {

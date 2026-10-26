@@ -4,8 +4,8 @@ use crate::distance::{Distance, Euclidean};
 use crate::error::{MarsError, Result};
 use crate::graph::{Graph, GraphConfig};
 use crate::node::NodeId;
-use crate::parser::{BoolConnector, ComparisonOp, ConditionValue, OrderBy, SelectColumn, WhereClause};
-use crate::schema::{Column, ColumnType, Row, Schema, Value};
+use crate::parser::{BoolConnector, ComparisonOp, ConditionValue, OrderBy, WhereClause};
+use crate::schema::{Row, Schema, Value, values_equal, values_compare};
 
 /// A table in the database containing vectors and metadata
 pub struct Table {
@@ -15,6 +15,8 @@ pub struct Table {
     pub(crate) next_id: u64,
     /// Unique constraint indexes: column_name -> set of values
     unique_indexes: HashMap<String, HashSet<String>>,  // Store values as strings for hashing
+    row_to_graph: HashMap<u64, NodeId>,
+    graph_to_row: HashMap<NodeId, u64>,
 }
 
 impl Table {
@@ -34,6 +36,8 @@ impl Table {
             rows: HashMap::new(),
             next_id: 1,
             unique_indexes,
+            row_to_graph: HashMap::new(),
+            graph_to_row: HashMap::new(),
         })
     }
 
@@ -77,13 +81,14 @@ impl Table {
         let vector = self.extract_vector(&row_values)?;
 
         // Insert into graph
-        let _graph_id = self.graph.insert(vector);
+        let graph_id = self.graph.insert(vector);
 
         // Update unique indexes
         self.update_unique_indexes(&row_values);
 
         // Create row
         let row = Row::new(id, row_values);
+        self.register_graph_mapping(id, graph_id);
         self.rows.insert(id, row);
 
         Ok(id)
@@ -126,16 +131,50 @@ impl Table {
         }
 
         // Batch insert into graph
-        let _graph_ids = self.graph.insert_batch(vectors);
+        let graph_ids = self.graph.insert_batch(vectors);
 
         // Insert all rows and update unique indexes
-        for (id, row_values) in prepared_rows {
+        for ((id, row_values), graph_id) in prepared_rows.into_iter().zip(graph_ids.into_iter()) {
             self.update_unique_indexes(&row_values);
             let row = Row::new(id, row_values);
+            self.register_graph_mapping(id, graph_id);
             self.rows.insert(id, row);
         }
 
         Ok(ids)
+    }
+
+    /// Restore deserialized rows while rebuilding graph and UNIQUE metadata.
+    pub fn restore_rows(&mut self, rows: Vec<Row>) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        self.graph = Graph::new(self.graph.dimension(), self.graph.config().clone());
+        self.rows.clear();
+        self.row_to_graph.clear();
+        self.graph_to_row.clear();
+        for unique_set in self.unique_indexes.values_mut() {
+            unique_set.clear();
+        }
+
+        let mut prepared_rows = Vec::with_capacity(rows.len());
+        let mut vectors = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            self.check_unique_constraints(&row.values)?;
+            vectors.push(self.extract_vector(&row.values)?);
+            self.update_unique_indexes(&row.values);
+            prepared_rows.push(row);
+        }
+
+        let graph_ids = self.graph.insert_batch(vectors);
+        for (row, graph_id) in prepared_rows.into_iter().zip(graph_ids.into_iter()) {
+            self.register_graph_mapping(row.id, graph_id);
+            self.rows.insert(row.id, row);
+        }
+
+        Ok(())
     }
 
     /// Select rows matching conditions
@@ -178,8 +217,7 @@ impl Table {
             let mut seen = std::collections::HashSet::new();
             results = results.into_iter()
                 .filter(|row| {
-                    let key = format!("{:?}", row.values);
-                    seen.insert(key)
+                    seen.insert(row.values_hash())
                 })
                 .collect();
         }
@@ -196,21 +234,41 @@ impl Table {
         query_vector: &[f32],
         k: usize,
         ef_search: usize,
-    ) -> Vec<(Row, f32)> {
-        let candidates = self.graph.query(query_vector, k, ef_search);
+    ) -> Result<Vec<(Row, f32)>> {
+        self.select_by_similarity_filtered(query_vector, k, ef_search, None)
+    }
 
-        candidates.into_iter()
-            .filter_map(|c| {
-                // Graph node ID corresponds to row ID - 1 (first insert gets graph_id=0, row_id=1)
-                let row_id = (c.id as u64) + 1;
-                self.rows.get(&row_id).map(|row| {
-                    (self.project_row(row, &[]), c.distance)
+    /// Select by vector similarity while applying non-vector filters.
+    pub fn select_by_similarity_filtered(
+        &self,
+        query_vector: &[f32],
+        k: usize,
+        _ef_search: usize,
+        where_clause: Option<&WhereClause>,
+    ) -> Result<Vec<(Row, f32)>> {
+        self.validate_query_vector(query_vector)?;
+
+        let vector_idx = self.vector_column_index()
+            .ok_or_else(|| MarsError::InvalidConfig("Vector column not found".into()))?;
+
+        let mut results: Vec<(Row, f32)> = self.rows.values()
+            .filter(|row| self.is_searchable_similarity_row(row, where_clause, vector_idx))
+            .filter_map(|row| {
+                row.values[vector_idx].as_vector().map(|vector| {
+                    (self.project_row(row, &[]), Euclidean::compute(query_vector, vector))
                 })
             })
-            .collect()
+            .collect();
+
+        results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(k);
+        Ok(results)
     }
 
     /// Update rows matching conditions
+    /// NOTE: If the vector column is updated, the graph neighbor edges are NOT updated
+    /// to reflect the new vector position. This is a known limitation - vector updates
+    /// should be implemented by deleting and re-inserting the row for correct search results.
     pub fn update(
         &mut self,
         assignments: &[(String, Value)],
@@ -254,10 +312,40 @@ impl Table {
         let count = matching_ids.len();
 
         for id in &matching_ids {
+            // Collect value strings to remove from unique indexes (need to do this before mutable borrow)
+            let unique_values_to_remove: Vec<(String, String)> = if !self.unique_indexes.is_empty() {
+                if let Some(row) = self.rows.get(id) {
+                    row.values.iter().enumerate()
+                        .filter_map(|(col_idx, val)| {
+                            let col_name = self.schema.columns.get(col_idx)?.name.clone();
+                            if self.unique_indexes.contains_key(&col_name) {
+                                let value_str = Self::value_to_string(val);
+                                if value_str != "NULL" {
+                                    return Some((col_name, value_str));
+                                }
+                            }
+                            None
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
             self.rows.remove(id);
-            // Note: We should also delete from graph, but need to map row ID to graph ID
-            let graph_id = (*id - 1) as NodeId;
-            self.graph.delete(graph_id);
+            if let Some(graph_id) = self.row_to_graph.remove(id) {
+                self.graph_to_row.remove(&graph_id);
+                self.graph.delete(graph_id);
+            }
+
+            // Clean up unique indexes after row removal (borrow is released)
+            for (col_name, value_str) in unique_values_to_remove {
+                if let Some(unique_set) = self.unique_indexes.get_mut(&col_name) {
+                    unique_set.remove(&value_str);
+                }
+            }
         }
 
         Ok(count)
@@ -312,6 +400,50 @@ impl Table {
     /// Get column index by name
     pub fn column_index(&self, name: &str) -> Option<usize> {
         self.schema.columns.iter().position(|c| c.name == name)
+    }
+
+    fn vector_column_index(&self) -> Option<usize> {
+        self.schema.vector_column.as_ref()
+            .and_then(|name| self.column_index(name))
+    }
+
+    fn validate_query_vector(&self, query_vector: &[f32]) -> Result<()> {
+        let expected_dim = self.graph.dimension();
+        if query_vector.len() != expected_dim {
+            return Err(MarsError::DimensionMismatch {
+                expected: expected_dim,
+                actual: query_vector.len(),
+            });
+        }
+
+        Ok(())
+    }
+
+    fn is_searchable_similarity_row(
+        &self,
+        row: &Row,
+        where_clause: Option<&WhereClause>,
+        vector_idx: usize,
+    ) -> bool {
+        if !self.matches_where(row, where_clause) {
+            return false;
+        }
+
+        if let Some(parent_idx) = self.column_index("parent_doc_id") {
+            if matches!(row.values[parent_idx], Value::Null) {
+                return false;
+            }
+        }
+
+        let Some(vector) = row.values[vector_idx].as_vector() else {
+            return false;
+        };
+
+        !Self::is_zero_vector(vector)
+    }
+
+    fn is_zero_vector(vector: &[f32]) -> bool {
+        vector.iter().all(|value| *value == 0.0)
     }
 
     /// Check if a row matches where clause (supports AND/OR)
@@ -520,27 +652,16 @@ impl Table {
     }
 
     fn values_equal(&self, a: &Value, b: &Value) -> bool {
-        match (a, b) {
-            (Value::Null, Value::Null) => true,
-            (Value::Integer(i1), Value::Integer(i2)) => i1 == i2,
-            (Value::Float(f1), Value::Float(f2)) => f1 == f2,
-            (Value::Text(s1), Value::Text(s2)) => s1 == s2,
-            (Value::Boolean(b1), Value::Boolean(b2)) => b1 == b2,
-            (Value::Integer(i), Value::Float(f)) => (*i as f64) == *f,
-            (Value::Float(f), Value::Integer(i)) => *f == (*i as f64),
-            _ => false,
-        }
+        values_equal(a, b)
+    }
+
+    fn register_graph_mapping(&mut self, row_id: u64, graph_id: NodeId) {
+        self.row_to_graph.insert(row_id, graph_id);
+        self.graph_to_row.insert(graph_id, row_id);
     }
 
     pub fn values_compare(&self, a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
-        match (a, b) {
-            (Value::Integer(i1), Value::Integer(i2)) => i1.partial_cmp(i2),
-            (Value::Float(f1), Value::Float(f2)) => f1.partial_cmp(f2),
-            (Value::Text(s1), Value::Text(s2)) => s1.partial_cmp(s2),
-            (Value::Integer(i), Value::Float(f)) => (*i as f64).partial_cmp(f),
-            (Value::Float(f), Value::Integer(i)) => f.partial_cmp(&(*i as f64)),
-            _ => None,
-        }
+        values_compare(a, b)
     }
 
     /// Project row to specified columns
@@ -663,5 +784,134 @@ mod tests {
 
         let rows = table.select(&[], None, None, None, None, false);
         assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn test_similarity_after_delete_and_reinsert() {
+        let schema = create_test_schema();
+        let mut table = Table::new(schema, GraphConfig::default()).unwrap();
+
+        let first_id = table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![1.0, 0.0, 0.0]), Value::Text("First".to_string())],
+        ).unwrap();
+        let second_id = table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![0.0, 1.0, 0.0]), Value::Text("Second".to_string())],
+        ).unwrap();
+
+        table.delete(Some(&WhereClause {
+            conditions: vec![crate::parser::Condition {
+                column: "id".to_string(),
+                operator: ComparisonOp::Eq,
+                value: ConditionValue::Single(Value::Integer(first_id as i64)),
+            }],
+            connectors: vec![],
+        })).unwrap();
+
+        let third_id = table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![1.0, 0.0, 0.0]), Value::Text("Third".to_string())],
+        ).unwrap();
+
+        let results = table.select_by_similarity(&[1.0, 0.0, 0.0], 1, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, third_id);
+        assert_ne!(results[0].0.id, second_id);
+    }
+
+    #[test]
+    fn test_similarity_filtered_excludes_parent_rows_and_zero_vectors() {
+        let mut schema = Schema::new("docs");
+        schema.columns.push(crate::schema::Column::new("id", ColumnType::Integer).primary_key());
+        schema.columns.push(crate::schema::Column::new("embedding", ColumnType::Vector(3)));
+        schema.columns.push(crate::schema::Column::new("title", ColumnType::Text));
+        schema.columns.push(crate::schema::Column::new("parent_doc_id", ColumnType::Integer));
+        schema.vector_column = Some("embedding".to_string());
+
+        let mut table = Table::new(schema, GraphConfig::default()).unwrap();
+        table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![0.0, 0.0, 0.0]), Value::Text("Parent".to_string())],
+        ).unwrap();
+        let child_id = table.insert(
+            &["embedding".to_string(), "title".to_string(), "parent_doc_id".to_string()],
+            vec![
+                Value::Vector(vec![1.0, 0.0, 0.0]),
+                Value::Text("Child".to_string()),
+                Value::Integer(1),
+            ],
+        ).unwrap();
+
+        let results = table.select_by_similarity(&[1.0, 0.0, 0.0], 2, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, child_id);
+    }
+
+    #[test]
+    fn test_similarity_filtered_respects_non_similarity_where_clause() {
+        let schema = create_test_schema();
+        let mut table = Table::new(schema, GraphConfig::default()).unwrap();
+        table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![1.0, 0.0, 0.0]), Value::Text("Allowed".to_string())],
+        ).unwrap();
+        table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![0.9, 0.0, 0.0]), Value::Text("Blocked".to_string())],
+        ).unwrap();
+
+        let where_clause = WhereClause {
+            conditions: vec![crate::parser::Condition {
+                column: "title".to_string(),
+                operator: ComparisonOp::Eq,
+                value: ConditionValue::Single(Value::Text("Allowed".to_string())),
+            }],
+            connectors: vec![],
+        };
+
+        let results = table.select_by_similarity_filtered(&[1.0, 0.0, 0.0], 2, 10, Some(&where_clause)).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.values[2], Value::Text("Allowed".to_string()));
+    }
+
+    #[test]
+    fn test_similarity_dimension_mismatch_returns_error() {
+        let schema = create_test_schema();
+        let table = Table::new(schema, GraphConfig::default()).unwrap();
+
+        let err = table.select_by_similarity(&[1.0, 0.0], 1, 10).unwrap_err();
+        assert!(matches!(err, MarsError::DimensionMismatch { expected: 3, actual: 2 }));
+    }
+
+    #[test]
+    fn test_restore_rows_rebuilds_unique_indexes() {
+        let mut schema = Schema::new("test");
+        let mut id_col = crate::schema::Column::new("id", ColumnType::Integer);
+        id_col.primary_key = true;
+        let embedding_col = crate::schema::Column::new("embedding", ColumnType::Vector(3));
+        let mut title_col = crate::schema::Column::new("title", ColumnType::Text);
+        title_col.unique = true;
+        schema.columns.push(id_col);
+        schema.columns.push(embedding_col);
+        schema.columns.push(title_col);
+        schema.vector_column = Some("embedding".to_string());
+
+        let mut table = Table::new(schema, GraphConfig::default()).unwrap();
+        table.restore_rows(vec![Row::new(
+            1,
+            vec![
+                Value::Integer(1),
+                Value::Vector(vec![1.0, 0.0, 0.0]),
+                Value::Text("duplicate".to_string()),
+            ],
+        )]).unwrap();
+
+        let err = table.insert(
+            &["embedding".to_string(), "title".to_string()],
+            vec![Value::Vector(vec![0.0, 1.0, 0.0]), Value::Text("duplicate".to_string())],
+        ).unwrap_err();
+
+        assert!(format!("{}", err).contains("UNIQUE"));
     }
 }

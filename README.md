@@ -1,87 +1,96 @@
-# PardusDB
+# PardusDB-NG
 
 **A fast, SQLite-like embedded vector database with graph-based approximate nearest neighbor search**
 
-[![Version](https://img.shields.io/badge/version-0.4.21-blue.svg)](https://github.com/FErArg/PardusDB)
+[![Version](https://img.shields.io/badge/version-0.4.33-blue.svg)](https://github.com/FErArg/pardus-rag-ng)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.85-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org/)
 
-PardusDB is designed for developers building local AI applications — RAG pipelines, semantic search, recommendation systems, or any project that needs lightweight, persistent vector storage without external dependencies.
-
-While [Pardus AI](https://pardusai.org/) gives non-technical users a powerful no-code platform to ask questions of their CSV, JSON, and PDF data in plain English, PardusDB gives developers the same speed and privacy in an embeddable, fully open-source vector database.
+PardusDB-NG represents a new approach to local vector storage, integrating Microsoft's MarkItDown tool [1] for converting various documents (PDF, Word, Excel, images, audio) to Markdown. This integration allows developers to feed their RAG and semantic search pipelines with structured content from multiple formats, while maintaining the lightness and privacy that characterize PardusDB.
 
 ## Contributors
 
 - [FErArg](https://ferarg.com) — *Individual contributor*
-- [Deepseek](https://deepseek.com) — *AI research and development*
-- [Minimax AI](https://www.minimax.io/) — *AI research and development*
+- **Deepseek** — *AI research and development*
+- **Miramax** — *AI research and development*
 
 
 ## Features
 
 - **Single-file storage** — Everything lives in one `.pardus` file, just like SQLite
 - **Multiple tables** — Store different vector dimensions and metadata in the same database
-- **Familiar SQL-like syntax** — CREATE, INSERT, SELECT, UPDATE, DELETE feel natural
+- **Familiar SQL-like syntax** — CREATE, INSERT, SELECT, UPDATE, DELETE feel natural, including `CREATE TABLE IF NOT EXISTS`
 - **UNIQUE constraints** — O(1) duplicate detection using HashSet
 - **GROUP BY with aggregates** — O(n) hash aggregation with COUNT, SUM, AVG, MIN, MAX
 - **JOINs** — O(n+m) hash join algorithm for INNER, LEFT, RIGHT joins
 - **Fast vector similarity search** — Graph-based approximate nearest neighbor search
 - **Thread-safe** — Safe concurrent reads in multi-threaded applications
-- **Full transactions** — BEGIN/COMMIT/ROLLBACK for atomic operations
+- **Programmatic transactions** — `ConcurrentDatabase` exposes begin/commit/rollback APIs for atomic batches
 - **Optional GPU acceleration** — For large batch inserts and queries
-- **Python MCP server** — 17 tools for AI agent integration (OpenCode, Claude Desktop)
-- **Import documents from disk** — PDF, CSV, DOCX, XLSX, XLS, JSON, JSONL, MD, TXT with auto-embeddings and parent-child tracking
-- **Smart sentence-aware chunking** — Intelligent text splitting at sentence boundaries with configurable overlap
-- **Async document ingestion** — Background thread processing for large files (50MB+) without timeout
-- **Joplin note integration** — Direct ingestion of Joplin notes with metadata preservation
-- **Tmp directory conversion** — All file conversions performed in isolated tmp directories before DB ingestion, cleaned up on success
+- **Python MCP server**
+- **MCP token savings stats** - Semantic search returns token-savings metadata without failing on `search_text`
+- **Semantic search quality** — Similarity queries exclude parent metadata rows and zero vectors, and respect compound WHERE filters
+- **Import documents from disk** — PDF, DOCX, PPTX, XLSX, HTML, EPUB, CSV, JSON, JSONL, MD, TXT with automatic text extraction and vector embeddings (MarkItDown))
+- **MarkItDown integration** — Uses Microsoft MarkItDown library for universal document-to-Markdown conversion
 - **Database health checks** — Verify integrity, detect orphans, check dimensions
-- **Optional dependency installers** — Install document parsing libraries and sentence-transformers via setup.sh/install.sh
 
 ## Installation
 
-Two installers are provided. Both install the binary, helper script, MCP server, Python SDK, and config — the only difference is how the binary is obtained.
+Installers install the binary, helper script, MCP server, Python SDK, and config. Use the macOS-specific scripts on macOS so the MCP Python package is installed inside a compatible virtual environment.
 
-### Option 1: setup.sh — Build from source (requires Rust)
+### Option 1: setup.sh — Build from source on Linux (requires Rust)
 
 ```bash
-git clone https://github.com/FErArg/PardusDB
+git clone https://github.com/FErArg/pardus-rag-ng
 cd pardusdb
 ./setup.sh --install
 ```
 
 Compiles `pardusdb` from Rust source with `cargo build --release`. Use this if you want the latest code or have modified the source. Rust is installed automatically if missing.
 
+**Use `setup-macos.sh` on macOS.** The macOS MCP server needs Python 3.10+ inside a virtual environment.
+
 ### Option 2: install.sh — Use precompiled binary (no Rust)
 
 ```bash
-git clone https://github.com/FErArg/PardusDB
+git clone https://github.com/FErArg/pardus-rag-ng
 cd pardusdb
 ./install.sh --install
 ```
 
-Copies the precompiled binary from `bin/pardus-v0.4.21-linux-x86_64` to `~/.local/bin/pardusdb`. No Rust compilation — faster but requires a pre-existing binary in the repo.
+ Copies the precompiled binary from `bin/pardus-v0.4.33-linux-x86_64` to `~/.local/bin/pardusdb`. No Rust compilation — faster but requires a pre-existing binary in the repo.
 
-### Option 3: install-macos.sh — macOS with venv-based MCP (auto-installs Python 3.10+ if needed)
+### Option 3: setup-macos.sh — macOS build from source with venv-based MCP
 
 ```bash
-git clone https://github.com/FErArg/PardusDB
+git clone https://github.com/FErArg/pardus-rag-ng
+cd pardusdb
+./setup-macos.sh --install
+```
+
+ Compiles `pardusdb` from Rust source, saves the binary to `bin/pardus-v0.4.33-darwin-arm64`, and installs the MCP server inside `~/.pardus/mcp/venv/`. If Python < 3.10 is detected, it offers to install Python 3.13 via Homebrew before installing the `mcp` Python package. The installer creates `~/.pardus/` but does not initialize `~/.pardus/pardus-rag.db`; the `pardus` helper creates it on first use.
+
+### Option 4: install-macos.sh — macOS precompiled binary with venv-based MCP
+
+```bash
+git clone https://github.com/FErArg/pardus-rag-ng
 cd pardusdb
 ./install-macos.sh --install
 ```
 
-Requires the precompiled macOS binary `bin/pardus-v0.4.21-darwin-arm64` in the repo. If not present, compile on your Mac with `cargo build --release` and copy to that path. Installs the MCP server inside a Python virtual environment (`~/.pardus/mcp/venv/`). **If Python < 3.10 is detected, automatically offers to install Python 3.13 via Homebrew.**
+ **Requires the precompiled macOS binary** `bin/pardus-v0.4.33-darwin-arm64` in the repo. If not present, use `./setup-macos.sh --install` instead. Installs the MCP server inside a Python virtual environment (`~/.pardus/mcp/venv/`). **If Python < 3.10 is detected, automatically offers to install Python 3.13 via Homebrew.**
 
-| | setup.sh | install.sh | install-macos.sh |
-|---|---|---|---|
-| Requires Rust | Yes (auto-installed) | No | No |
-| Requires Python 3.10+ | No | No | **Yes (auto-installed via Homebrew)** |
-| Compiles source | Yes | No | **Only if macOS binary missing** |
-| Binary from | `bin/pardus-v*-{platform}-{arch}` | `bin/pardus-v*-linux-x86_64` | `bin/pardus-v*-darwin-arm64` |
-| MCP installation | global pip | global pip | virtual environment |
-| macOS compatibility | Partial | Partial | **Recommended** |
-| Speed | ~1-3 min | <1 sec | <1 sec + Python install if needed |
+| | setup.sh | install.sh | setup-macos.sh | install-macos.sh |
+|---|---|---|---|---|
+| Requires Rust | Yes | No | Yes | No |
+| Requires Python 3.10+ for MCP | No | No | **Yes (auto-installed via Homebrew)** | **Yes (auto-installed via Homebrew)** |
+| Compiles source | Yes | No | Yes | No |
+| Binary from | source build | `bin/pardus-v*-linux-x86_64` | source build | `bin/pardus-v*-darwin-arm64` |
+| MCP installation | global pip | global pip | virtual environment | virtual environment |
+| Linux | Yes | Yes | Not supported | Not supported |
+| macOS (Apple Silicon) | Not recommended | No | **Yes (recommended)** | Yes (if binary exists) |
+| Speed | ~1-3 min | <1 sec | ~1-3 min + Python setup | <1 sec + Python setup |
 
 See [INSTALL.md](INSTALL.md) for detailed instructions.
 
@@ -89,66 +98,42 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 ### Using the Helper (Recommended)
 
-The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`. This is the recommended way to use PardusDB:
+The `pardus` helper automatically manages the default database at `~/.pardus/pardus-rag.db`:
 
 ```bash
-pardus                    # Opens ~/.pardus/pardus-rag.db (creates if missing)
-pardus mi.db              # Opens specific file
-pardus                    # Exit with: quit or Ctrl+C
+pardus                    # Opens database, creates if missing
+pardus mi.db              # Open specific file
 ```
 
-### Using the Binary Directly
+### Using the REPL
 
-The `pardusdb` binary has two modes:
-
-**File-backed mode** (with path argument):
 ```bash
-pardusdb mi.db            # Opens file, processes SQL from stdin, saves on quit
+pardus
 ```
-
-**REPL mode** (no arguments):
-```bash
-pardusdb                  # Opens project database (database.pardus in CWD) or in-memory
-```
-
-### REPL Session Example
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║                    PardusDB REPL                         ║
-║          Vector Database with SQL Interface               ║
+║                    PardusDB REPL                      ║
+║          Vector Database with SQL Interface           ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-pardusdb [memory]> CREATE TABLE docs (embedding VECTOR(384), content TEXT);
+pardusdb [~/.pardus/pardus-rag.db]> CREATE TABLE docs (embedding VECTOR(768), content TEXT);
 Table 'docs' created
 
-pardusdb [memory]> INSERT INTO docs (embedding, content)
-VALUES ([0.1, 0.2, ...], 'Hello World');
-Inserted row
+pardusdb [~/.pardus/pardus-rag.db]> INSERT INTO docs (embedding, content)
+VALUES ([0.1, 0.2, 0.3, ...], 'Hello World');
+Inserted row with id=1
 
-pardusdb [memory]> SELECT * FROM docs
-WHERE embedding SIMILARITY [0.1, 0.2, ...] LIMIT 5;
+pardusdb [~/.pardus/pardus-rag.db]> SELECT * FROM docs
+WHERE embedding SIMILARITY [0.1, 0.2, 0.3, ...] LIMIT 5;
 
 Found 1 similar rows:
-  id=1, distance=0.0000, content=Hello World
+  id=1, distance=0.0000, values=[Vector([...]), Text("Hello World")]
 
-pardusdb [memory]> .open mi.db
-Database opened: mi.db
-
-pardusdb [mi.db]> .save
-Saved to: mi.db
-
-pardusdb [mi.db]> quit
+pardusdb [~/.pardus/pardus-rag.db]> quit
+Saved to: ~/.pardus/pardus-rag.db
 Goodbye!
 ```
-
-### Helper vs Binary: What's the Difference?
-
-| Command | Behavior |
-|---------|----------|
-| `pardus` | Helper script that ensures `~/.pardus/pardus-rag.db` exists and opens it |
-| `pardusdb` (no args) | REPL with in-memory DB or project `database.pardus` if found in CWD |
-| `pardusdb <path>` | Opens specific file, reads SQL from stdin until `quit` |
 
 ## SQL Syntax
 
@@ -245,7 +230,7 @@ LEFT JOIN orders ON users.id = orders.user_id;
 
 ## MCP Server for AI Agents
 
-PardusDB includes an MCP server that allows AI agents (OpenCode, Claude Desktop, etc.) to interact with the database using natural language.
+PardusDB-NG includes an MCP server that allows AI agents (OpenCode, Claude Desktop, etc.) to interact with the database using natural language.
 
 ### Tools Available
 
@@ -265,10 +250,10 @@ PardusDB includes an MCP server that allows AI agents (OpenCode, Claude Desktop,
 | `pardusdb_health_check` | Run integrity checks on tables and data |
 | `pardusdb_get_schema` | Show table schema and structure |
 | `pardusdb_import_status` | View or manage import history |
-| `pardusdb_ingest_chunked` | Ingest a document with smart sentence-aware chunking |
-| `pardusdb_ingest_joplin` | Ingest a Joplin note (use after `joplin_read_note`) |
-| `pardusdb_ingest_async` | Async ingest for large PDFs (avoids timeout) |
-| `pardusdb_ingest_status` | Check async ingest job progress |
+
+### MCP Document Ingestion Paths
+
+For `pardusdb_import_text`, `pardusdb_ingest_chunked`, and `pardusdb_ingest_async`, absolute paths are used exactly as provided. Relative paths are restricted to the MCP process project root: PardusDB first resolves them from that root, then searches recursively inside the root if the file or directory is not found directly. Relative paths and symlinks that escape the project root are rejected. If a relative name matches more than one file or directory, use a more specific path.
 
 ### OpenCode Configuration
 
@@ -280,7 +265,7 @@ Add to your `opencode.json`:
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["python3", "/home/${USER}/.pardus/mcp/server.py"],
+      "command": ["/home/${USER}/.pardus/mcp/run_pardusdb_mcp.sh"],
       "enabled": true
     }
   }
@@ -288,6 +273,17 @@ Add to your `opencode.json`:
 ```
 
 Adjust the path to match your installation. Tools are automatically available to the LLM.
+
+### Documentation for AI Agents
+
+The file `pardusdb-agents.md` contains a complete guide for AI agents (OpenCode, Claude Desktop, etc.) on how to use all 15 PardusDB-NG MCP tools.
+
+**For new projects using the MCP:**
+
+1. Copy `pardusdb-agents.md` to the project root
+2. Or integrate its content into the project's `AGENTS.md` file
+
+This ensures AI agents have all the information needed to interact with the vector database effectively.
 
 ## SDKs
 
@@ -354,7 +350,7 @@ pip install requests
 python simple_rag.py
 ```
 
-## Why We Built PardusDB
+## Why We Built PardusDB - Original Authors
 
 The Pardus AI team built PardusDB because we believe private, local-first AI tools should be accessible to everyone — from individual developers to large teams.
 

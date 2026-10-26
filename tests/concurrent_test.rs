@@ -193,7 +193,7 @@ fn test_direct_api_thread_safety() {
         let db_clone = Arc::clone(&db);
         let handle = thread::spawn(move || {
             let mut conn = db_clone.connect();
-            let vec = vec![i as f32, 0.0, 0.0];
+            let vec = vec![(i + 1) as f32, 0.0, 0.0];
             conn.insert_direct("vectors", vec, vec![
                 ("label", Value::Text(format!("vec_{}", i)))
             ]).unwrap();
@@ -207,7 +207,7 @@ fn test_direct_api_thread_safety() {
 
     // Verify via direct search API
     let conn = db.connect();
-    let results = conn.search_similar("vectors", &[0.0, 0.0, 0.0], 10, 100).unwrap();
+    let results = conn.search_similar("vectors", &[1.0, 0.0, 0.0], 10, 100).unwrap();
     assert_eq!(results.len(), 4);
 }
 

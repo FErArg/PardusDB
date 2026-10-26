@@ -1,15 +1,15 @@
 [package]
 name = "pardusdb"
-version = "0.4.21"
+version = "0.4.33"
 edition = "2024"
 
 [dependencies]
 memmap2 = "0.9"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 bincode = "1.3"
-chrono = "0.4"
+dirs = "5"
+serde_json = "1.0"
 
 # GPU acceleration (optional)
 wgpu = { version = "24.0", optional = true }
@@ -17,17 +17,9 @@ bytemuck = { version = "1.21", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }
 async-trait = { version = "0.1", optional = true }
 
-# Neo4j client (optional, for benchmarks)
-neo4rs = { version = "0.8", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
-
-# HelixDB client (optional, for benchmarks)
-reqwest = { version = "0.11", optional = true, features = ["blocking", "json"] }
-
 [features]
 default = []
 gpu = ["wgpu", "bytemuck", "pollster", "async-trait"]
-neo4j = ["dep:neo4rs", "dep:tokio"]
 
 [dev-dependencies]
 rand = "0.8"

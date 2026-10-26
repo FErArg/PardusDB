@@ -6,13 +6,33 @@ Provides a simple, Pythonic interface for vector database operations.
 
 from __future__ import annotations
 
+import re
 import subprocess
+import json
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from .errors import ConnectionError, QueryError, TableNotFoundError, DimensionMismatchError
+
+
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _validate_identifier(name: str) -> str:
+    """Validate that a name is a safe SQL identifier (alphanumeric + underscore)."""
+    if not name or not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}. Only alphanumeric characters and underscores are allowed.")
+    if len(name) > 128:
+        raise ValueError(f"Identifier too long (max 128 characters): {name!r}")
+    return name
+
+
+def _escape_sql_string(val: str) -> str:
+    """Escape a string value for safe inclusion in SQL single quotes."""
+    return val.replace("\\", "\\\\").replace("'", "''").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t").replace("\0", "")
 
 
 @dataclass
@@ -91,21 +111,30 @@ class PardusDB:
 
         raise ConnectionError(
             "pardusdb binary not found in PATH. Please install PardusDB first: "
-            "git clone https://github.com/FErArg/PardusDB && cd pardusdb && ./setup.sh"
+            "git clone https://github.com/FErArg/pardus-rag-ng && cd pardusdb && ./setup.sh"
         )
 
     def _execute(self, command: str) -> str:
         """Execute a command and return the output."""
         try:
-            db_arg = str(self.path) if self.path else ""
-            result = subprocess.run(
-                [self._binary_path, db_arg],
-                input=f"{command}\nquit\n",
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return result.stdout + result.stderr
+            # Create a temp file with the command
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as f:
+                f.write(command + "\n")
+                f.write("quit\n")
+                temp_path = f.name
+
+            try:
+                db_arg = str(self.path) if self.path else ""
+                result = subprocess.run(
+                    [self._binary_path, db_arg],
+                    stdin=open(temp_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                return result.stdout + result.stderr
+            finally:
+                os.unlink(temp_path)
 
         except subprocess.TimeoutExpired:
             raise QueryError("Query timed out", command)
@@ -176,6 +205,7 @@ class PardusDB:
                 sql_type = type_map.get(col_type.lower(), col_type.upper())
                 columns.append(f"{col_name} {sql_type}")
 
+        _validate_identifier(name)
         sql = f"CREATE TABLE {'IF NOT EXISTS ' if if_not_exists else ''}{name} ({', '.join(columns)})"
         self._execute(sql)
 
@@ -207,6 +237,7 @@ class PardusDB:
 
     def drop_table(self, name: str, if_exists: bool = True) -> None:
         """Drop a table."""
+        _validate_identifier(name)
         self._execute(f"DROP TABLE {'IF EXISTS ' if if_exists else ''}{name}")
         self._tables.pop(name, None)
         if self._current_table == name:
@@ -258,9 +289,10 @@ class PardusDB:
 
         if metadata:
             for key, val in metadata.items():
+                _validate_identifier(key)
                 columns.append(key)
                 if isinstance(val, str):
-                    values.append(f"'{val}'")
+                    values.append(f"'{_escape_sql_string(val)}'")
                 elif isinstance(val, bool):
                     values.append("true" if val else "false")
                 else:
@@ -308,39 +340,12 @@ class PardusDB:
         if metadata_list and len(vectors) != len(metadata_list):
             raise ValueError("Number of vectors and metadata must match")
 
-        if not vectors:
-            return []
-
-        value_rows = []
-        for i, vector in enumerate(vectors):
-            vector_str = "[" + ", ".join(str(x) for x in vector) + "]"
-            metadata = metadata_list[i] if metadata_list else None
-
-            if metadata:
-                columns = ["embedding"]
-                values = [vector_str]
-                for key, val in metadata.items():
-                    columns.append(key)
-                    if isinstance(val, str):
-                        values.append(f"'{val}'")
-                    elif isinstance(val, bool):
-                        values.append("true" if val else "false")
-                    else:
-                        values.append(str(val))
-                value_rows.append(f"({', '.join(values)})")
-            else:
-                value_rows.append(f"({vector_str})")
-
-        sql = f"INSERT INTO {table_name} VALUES {', '.join(value_rows)}"
-        result = self._execute(sql)
-
         ids = []
-        for line in result.split("\n"):
-            if "id=" in line:
-                try:
-                    ids.append(int(line.split("id=")[1].split()[0]))
-                except (IndexError, ValueError):
-                    pass
+        for i, vector in enumerate(vectors):
+            metadata = metadata_list[i] if metadata_list else None
+            row_id = self.insert(vector, metadata, table_name)
+            ids.append(row_id)
+
         return ids
 
     # ==================== Search Operations ====================
@@ -458,8 +463,9 @@ class PardusDB:
 
         set_parts = []
         for key, val in metadata.items():
+            _validate_identifier(key)
             if isinstance(val, str):
-                set_parts.append(f"{key} = '{val}'")
+                set_parts.append(f"{key} = '{_escape_sql_string(val)}'")
             elif isinstance(val, bool):
                 set_parts.append(f"{key} = {'true' if val else 'false'}")
             else:

@@ -1,8 +1,7 @@
 //! PardusDB - A single-file embedded vector database with SQL-like interface.
 
-use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use pardusdb::{Database, ExecuteResult};
 
@@ -10,50 +9,82 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
-        let path = &args[1];
-        run_with_file(path);
+        let arg = &args[1];
+        if arg == "--stats" {
+            show_stats();
+        } else {
+            run_with_file(arg);
+        }
     } else {
         run_repl();
     }
 }
 
-fn find_project_db() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    let db_path = cwd.join("database.pardus");
-    if db_path.exists() {
-        Some(db_path)
+fn show_stats() {
+    let stats_path = dirs::home_dir()
+        .map(|h| h.join(".pardus").join("mcp_stats.json"))
+        .unwrap_or_else(|| PathBuf::from(".pardus/mcp_stats.json"));
+
+    println!("╔═══════════════════════════════════════════════════════════════╗");
+    println!("║              PARDUSDB TOKEN DASHBOARD                        ║");
+    println!("╠═══════════════════════════════════════════════════════════════╣");
+
+    if stats_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&stats_path) {
+            if let Ok(stats) = serde_json::from_str::<serde_json::Value>(&content) {
+                let model = stats["config"]["model"].as_str().unwrap_or("unknown");
+                let provider = stats["config"]["provider"].as_str().unwrap_or("unknown");
+                let ctx = stats["config"]["context_window"].as_i64().unwrap_or(0);
+
+                println!("║  MODEL: {}                                ║", truncate(model, 54));
+                println!("║  Provider: {} | Context: {:>12} tokens   ║", provider, ctx);
+                println!("╠═══════════════════════════════════════════════════════════════╣");
+                println!("║  SESIÓN                                    TOTAL           ║");
+                println!("║  ─────────────────────────────────────────────────────────   ║");
+
+                let sq = stats["session"]["queries"].as_i64().unwrap_or(0);
+                let st = stats["session"]["tokens_sent"].as_i64().unwrap_or(0);
+                let sfull = stats["session"]["tokens_if_full"].as_i64().unwrap_or(0);
+                let ssave = sfull - st;
+                let spct = if sfull > 0 { (ssave as f64 / sfull as f64 * 100.0) as i64 } else { 0 };
+
+                let tq = stats["total"]["queries"].as_i64().unwrap_or(0);
+                let tt = stats["total"]["tokens_sent"].as_i64().unwrap_or(0);
+                let tfull = stats["total"]["tokens_if_full"].as_i64().unwrap_or(0);
+                let tsave = tfull - tt;
+                let tpct = if tfull > 0 { (tsave as f64 / tfull as f64 * 100.0) as i64 } else { 0 };
+
+                println!("║  Queries: {:>6}                    Total: {:>10}         ║", sq, tq);
+                println!("║  Tokens: {:>6}                     Total: {:>10}         ║", format_num(st), format_num(tt));
+                println!("║  Savings: {:>5} ({:>3}%)               Savings: {:>9} ({:>3}%) ║", format_num(ssave), spct, format_num(tsave), tpct);
+                println!("╚═══════════════════════════════════════════════════════════════╝");
+                return;
+            }
+        }
+        println!("║  Error reading stats file                                  ║");
     } else {
-        None
+        println!("║  No stats file found                                       ║");
+        println!("║  Run some queries first to see statistics here               ║");
+    }
+    println!("╚═══════════════════════════════════════════════════════════════╝");
+    println!("\nStats file: {}", stats_path.display());
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("{}...", &s[..max-3])
+    } else {
+        s.to_string()
     }
 }
 
-fn ensure_marker(dir: &Path, db_path: &Path) {
-    let marker = dir.join(".database.pardusdb");
-    let now = chrono::Utc::now().to_rfc3339();
-
-    if marker.exists() {
-        if let Ok(content) = fs::read_to_string(&marker) {
-            if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(obj) = json.as_object_mut() {
-                    obj.insert("last_opened".to_string(), serde_json::Value::String(now));
-                    let _ = fs::write(&marker, serde_json::to_string_pretty(obj).unwrap_or_default());
-                }
-            }
-        }
+fn format_num(n: i64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
     } else {
-        let content = format!(
-            r#"{{"version":1,"created_at":"{}","last_opened":"{}"}}"#,
-            now, now
-        );
-        let _ = fs::write(&marker, content);
-
-        if dir.join(".git").exists() {
-            let gitignore = dir.join(".gitignore");
-            let current = fs::read_to_string(&gitignore).unwrap_or_default();
-            if !current.contains("*.pardus") {
-                let _ = fs::write(&gitignore, format!("{}\n*.pardus\n", current));
-            }
-        }
+        n.to_string()
     }
 }
 
@@ -64,10 +95,6 @@ fn run_with_file(path: &str) {
     match Database::open(path) {
         Ok(mut db) => {
             println!("Database opened successfully.\n");
-
-            if let Some(parent) = Path::new(path).parent() {
-                ensure_marker(parent, Path::new(path));
-            }
 
             let stdin = io::stdin();
             let mut lines = BufReader::new(stdin.lock()).lines().map(|r| r.unwrap_or_default()).peekable();
@@ -81,6 +108,7 @@ fn run_with_file(path: &str) {
                 return;
             }
 
+            let mut saw_quit = false;
             for line in lines {
                 let input = line.trim();
                 if input.is_empty() {
@@ -95,6 +123,7 @@ fn run_with_file(path: &str) {
 
                 match cmd {
                     "quit" | "exit" | "q" => {
+                        saw_quit = true;
                         if let Err(e) = db.save() {
                             println!("Error saving: {}", e);
                         } else {
@@ -137,6 +166,12 @@ fn run_with_file(path: &str) {
                     }
                 }
             }
+
+            if !saw_quit {
+                if let Err(e) = db.save() {
+                    eprintln!("Auto-save on exit: {}", e);
+                }
+            }
         }
         Err(e) => println!("Error opening database: {}", e),
     }
@@ -148,32 +183,13 @@ fn run_repl() {
     let mut db = Database::in_memory();
     let mut current_file: Option<PathBuf> = None;
 
-    if let Some(project_db) = find_project_db() {
-        match Database::open(project_db.as_path()) {
-            Ok(new_db) => {
-                db = new_db;
-                current_file = Some(project_db.clone());
-                if let Some(parent) = project_db.parent() {
-                    ensure_marker(parent, &project_db);
-                }
-                println!("Opened project database: {}\n", project_db.display());
-            }
-            Err(e) => {
-                println!("Note: Project database found at {} but could not be opened: {}\n", project_db.display(), e);
-            }
-        }
-    } else {
-        println!("No project database found. Using in-memory database.");
-        println!("To use a project DB: create .pardus in your project directory, or use .open <file>.\n");
-    }
-
     loop {
-        if current_file.is_some() {
-            print!("pardusdb [{}]> ", current_file.as_ref().unwrap().display());
+        if let Some(path) = &current_file {
+            print!("pardusdb [{}]> ", path.display());
         } else {
             print!("pardusdb [memory]> ");
         }
-        io::stdout().flush().unwrap();
+            let _ = io::stdout().flush();
 
         let mut input = String::new();
         if io::stdin().read_line(&mut input).is_err() {
@@ -239,9 +255,6 @@ fn run_repl() {
                     db = new_db;
                     current_file = Some(PathBuf::from(path));
                     println!("Opened: {}", path);
-                    if let Some(parent) = Path::new(path).parent() {
-                        ensure_marker(parent, Path::new(path));
-                    }
                 }
                 Err(e) => println!("Error opening: {}", e),
             }
@@ -250,15 +263,13 @@ fn run_repl() {
 
         if cmd.starts_with("create ") {
             let path = cmd[7..].trim();
+            // Create new database file
             match Database::open(path) {
                 Ok(new_db) => {
                     db = new_db;
                     current_file = Some(PathBuf::from(path));
                     println!("Created and opened: {}", path);
                     println!("Now you can create tables with: CREATE TABLE ...");
-                    if let Some(parent) = Path::new(path).parent() {
-                        ensure_marker(parent, Path::new(path));
-                    }
                 }
                 Err(e) => println!("Error creating: {}", e),
             }

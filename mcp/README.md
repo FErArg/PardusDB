@@ -87,6 +87,12 @@ Add to your Claude Desktop configuration file:
 | `pardusdb_use_table` | Set current table |
 | `pardusdb_status` | Get connection status |
 
+## Document Ingestion Paths
+
+The document ingestion tools (`pardusdb_import_text`, `pardusdb_ingest_chunked`, and `pardusdb_ingest_async`) treat absolute paths as explicit user intent and use them directly. Relative paths are project-local: they are resolved inside the MCP process working directory and, when not found directly, searched recursively under that root.
+
+Relative paths never escape the project root. Inputs containing `../` are rejected, and symlinks that resolve outside the root are skipped or rejected. If a relative name has multiple matches, the tool returns an error and asks for a more specific path.
+
 ## Usage Examples
 
 ### Creating a Database and Table

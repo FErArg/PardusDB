@@ -21,6 +21,23 @@ from pathlib import Path
 import re
 from typing import Any, List, Optional
 
+_SCRIPT_DIR = Path(__file__).parent.resolve()
+if _SCRIPT_DIR not in [Path(p).resolve() for p in sys.path]:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+try:
+    from .model_context import (
+        get_context_window_for_model,
+        detect_provider,
+        DEFAULT_TOKENS_PER_CHUNK as MCP_TOKENS_PER_CHUNK,
+    )
+except ImportError:
+    from model_context import (
+        get_context_window_for_model,
+        detect_provider,
+        DEFAULT_TOKENS_PER_CHUNK as MCP_TOKENS_PER_CHUNK,
+    )
+
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
@@ -29,7 +46,7 @@ except ImportError as exc:
     is_macos = sys.platform == "darwin"
     if is_macos:
         print("Error: mcp package not found.", file=sys.stderr)
-        print("On macOS, run this script via ~/.pardus/mcp/run_mcp.sh, not directly with python3.", file=sys.stderr)
+        print("On macOS, run this script via ~/.pardus/mcp/run_pardusdb_mcp.sh, not directly with python3.", file=sys.stderr)
         print("(The installer creates a virtual environment that contains the mcp package.)", file=sys.stderr)
     else:
         print("Error: mcp package not found. Install with: pip install mcp", file=sys.stderr)
@@ -40,6 +57,10 @@ MAX_FILE_SIZE_MB = 50
 DEFAULT_VECTOR_DIM = 384
 EMBEDDER_MODEL = "all-MiniLM-L6-v2"
 TMP_DIR = Path("./tmp")
+STATS_FILE = Path.home() / ".pardus" / "mcp_stats.json"
+DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_CONTEXT_WINDOW = 1000000
+DEFAULT_TOKENS_PER_CHUNK = 300
 
 
 def _ensure_tmp_dir() -> Path:
@@ -71,6 +92,136 @@ def _convert_to_markdown(file_path: str, output_dir: Path) -> tuple[Path, str]:
 def _cleanup_tmp_dir(tmp_uuid_dir: Path):
     if tmp_uuid_dir.exists():
         shutil.rmtree(tmp_uuid_dir, ignore_errors=True)
+
+
+# ==================== Token Tracking ====================
+
+def _load_stats() -> dict:
+    """Load stats from JSON file."""
+    if STATS_FILE.exists():
+        try:
+            with open(STATS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "config": {
+            "model": DEFAULT_MODEL,
+            "context_window": DEFAULT_CONTEXT_WINDOW,
+            "provider": "anthropic"
+        },
+        "session": {
+            "start": datetime.now(timezone.utc).isoformat(),
+            "queries": 0,
+            "tokens_sent": 0,
+            "tokens_if_full": 0,
+            "chunks_returned": 0
+        },
+        "total": {
+            "queries": 0,
+            "tokens_sent": 0,
+            "tokens_if_full": 0,
+            "chunks_returned": 0
+        }
+    }
+
+
+def _save_stats(stats: dict) -> None:
+    """Save stats to JSON file."""
+    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(STATS_FILE, "w") as f:
+            json.dump(stats, f, indent=2)
+    except Exception:
+        pass
+
+
+def update_token_stats(chunks_returned: int, tokens_sent: int) -> dict:
+    """Update token stats after a search query."""
+    stats = _load_stats()
+
+    # Calculate what would have been sent without MCP
+    tokens_if_full = tokens_sent * 20  # Rough estimate: full docs would be ~20x larger
+
+    # Update session
+    stats["session"]["queries"] += 1
+    stats["session"]["tokens_sent"] += tokens_sent
+    stats["session"]["tokens_if_full"] += tokens_if_full
+    stats["session"]["chunks_returned"] += chunks_returned
+
+    # Update total
+    stats["total"]["queries"] += 1
+    stats["total"]["tokens_sent"] += tokens_sent
+    stats["total"]["tokens_if_full"] += tokens_if_full
+    stats["total"]["chunks_returned"] += chunks_returned
+
+    _save_stats(stats)
+    return stats
+
+
+def get_token_stats() -> dict:
+    """Get current token stats with calculated savings."""
+    stats = _load_stats()
+
+    tokens_sent = stats["session"]["tokens_sent"]
+    tokens_if_full = stats["session"]["tokens_if_full"]
+    savings = tokens_if_full - tokens_sent if tokens_if_full > 0 else 0
+    savings_pct = (savings / tokens_if_full * 100) if tokens_if_full > 0 else 0
+
+    total_tokens_sent = stats["total"]["tokens_sent"]
+    total_tokens_if_full = stats["total"]["tokens_if_full"]
+    total_savings = total_tokens_if_full - total_tokens_sent if total_tokens_if_full > 0 else 0
+    total_savings_pct = (total_savings / total_tokens_if_full * 100) if total_tokens_if_full > 0 else 0
+
+    return {
+        "config": stats["config"],
+        "session": {
+            "start": stats["session"]["start"],
+            "queries": stats["session"]["queries"],
+            "tokens_sent": tokens_sent,
+            "tokens_if_full": tokens_if_full,
+            "savings": savings,
+            "savings_percent": round(savings_pct, 1),
+            "chunks_returned": stats["session"]["chunks_returned"]
+        },
+        "total": {
+            "queries": stats["total"]["queries"],
+            "tokens_sent": total_tokens_sent,
+            "tokens_if_full": total_tokens_if_full,
+            "savings": total_savings,
+            "savings_percent": round(total_savings_pct, 1),
+            "chunks_returned": stats["total"]["chunks_returned"]
+        }
+    }
+
+
+def set_current_model(model: str) -> dict:
+    """Set the current model and update config."""
+    stats = _load_stats()
+    context_window = get_context_window_for_model(model)
+    provider = detect_provider(model)
+
+    stats["config"] = {
+        "model": model,
+        "context_window": context_window,
+        "provider": provider
+    }
+    _save_stats(stats)
+    return {"model": model, "context_window": context_window, "provider": provider}
+
+
+def reset_session_stats() -> dict:
+    """Reset session stats (keep total)."""
+    stats = _load_stats()
+    stats["session"] = {
+        "start": datetime.now(timezone.utc).isoformat(),
+        "queries": 0,
+        "tokens_sent": 0,
+        "tokens_if_full": 0,
+        "chunks_returned": 0
+    }
+    _save_stats(stats)
+    return {"status": "Session stats reset"}
 
 
 # ==================== Optional Dependencies ====================
@@ -125,28 +276,35 @@ class PardusDBClient:
     def __init__(self) -> None:
         self.db_path: Optional[str] = None
         self.current_table: Optional[str] = None
-        self._discover_database()
+        self._discovered: bool = False
 
     def _discover_database(self) -> None:
         """Check for database.pardus in CWD. If found, open and verify integrity."""
+        if self._discovered:
+            return
+        self._discovered = True
         cwd_db = Path.cwd() / "database.pardus"
         if cwd_db.exists():
             self.db_path = str(cwd_db)
-            self._verify_integrity()
+            self._try_verify_integrity()
 
-    def _verify_integrity(self) -> None:
-        """Run basic integrity check: access + SHOW TABLES."""
-        result = self.execute("SHOW TABLES;")
-        if "Error" in result:
-            raise ConnectionError(f"Database integrity check failed: {result}")
+    def _try_verify_integrity(self) -> None:
+        """Attempt integrity check but never crash the server at startup."""
+        try:
+            result = self.execute("SHOW TABLES;")
+            if "Error" in result:
+                self.db_path = None
+        except Exception:
+            self.db_path = None
 
     def execute(self, command: str) -> str:
         import subprocess
+        self._discover_database()
         if self.db_path is None:
             cwd_db = Path.cwd() / "database.pardus"
             if cwd_db.exists():
                 self.db_path = str(cwd_db)
-                self._verify_integrity()
+                self._try_verify_integrity()
             else:
                 self.db_path = str(cwd_db)
                 create_result = self._create_database(str(cwd_db))
@@ -205,7 +363,7 @@ db_client = PardusDBClient()
 # ==================== SQL Escaping Helpers ====================
 
 def sql_escape(s: str) -> str:
-    return s.replace("\\", "\\\\").replace("'", "''").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return s.replace("\\", "\\\\").replace("'", "''").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t").replace("\0", "")
 
 
 def sql_escape_path(path: str) -> str:
@@ -217,7 +375,109 @@ def sql_safe_identifier(name: str) -> str:
         raise ValueError("Empty identifier not allowed")
     if not all(c.isalnum() or c == '_' for c in name):
         raise ValueError(f"Invalid identifier: {name}")
+    if len(name) > 128:
+        raise ValueError(f"Identifier too long (max 128 characters): {name}")
     return name
+
+
+# SQL command whitelist for execute_sql safety
+_ALLOWED_SQL_PREFIXES = (
+    "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
+    "SHOW", "ALTER", "BEGIN", "COMMIT", "ROLLBACK", "EXPLAIN",
+)
+
+
+def _validate_sql_command(sql: str) -> str:
+    """Validate that SQL starts with an allowed command keyword."""
+    stripped = sql.strip()
+    if not stripped:
+        raise ValueError("Empty SQL command")
+    first_word = stripped.split()[0].upper()
+    if first_word not in _ALLOWED_SQL_PREFIXES:
+        raise ValueError(f"SQL command not allowed: {first_word}. Allowed: {', '.join(_ALLOWED_SQL_PREFIXES)}")
+    return stripped
+
+
+def _sanitize_path(path_str: str) -> Path:
+    """Sanitize a file path: resolve, check for traversal, restrict to safe locations."""
+    p = Path(path_str).resolve()
+    parts = p.parts
+    if ".." in parts:
+        raise ValueError(f"Path traversal not allowed: {path_str}")
+    return p
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    """Return True when path is inside base, compatible with older Python versions."""
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def _project_root() -> Path:
+    """Project root for MCP file ingestion is the MCP process working directory."""
+    return Path.cwd().resolve()
+
+
+def _resolve_ingest_path(path_str: str, *, expect_dir: bool = False, project_root: Optional[Path] = None) -> Path:
+    """Resolve document ingestion paths without allowing relative paths outside project root."""
+    root = (project_root or _project_root()).resolve()
+    raw = Path(path_str).expanduser()
+
+    if raw.is_absolute():
+        resolved = raw.resolve()
+        if not resolved.exists():
+            kind = "Directory" if expect_dir else "File"
+            raise FileNotFoundError(f"{kind} not found: {path_str}")
+        if expect_dir and not resolved.is_dir():
+            raise NotADirectoryError(f"Not a directory: {path_str}")
+        if not expect_dir and not resolved.is_file():
+            raise FileNotFoundError(f"Not a file: {path_str}")
+        return resolved
+
+    if ".." in raw.parts:
+        raise ValueError(f"Path traversal not allowed for relative ingest path: {path_str}")
+
+    direct = (root / raw).resolve()
+    if not _is_relative_to(direct, root):
+        raise ValueError(f"Relative ingest path escapes project root: {path_str}")
+    if direct.exists():
+        if expect_dir and not direct.is_dir():
+            raise NotADirectoryError(f"Not a directory: {path_str}")
+        if not expect_dir and not direct.is_file():
+            raise FileNotFoundError(f"Not a file: {path_str}")
+        return direct
+
+    wanted = raw.as_posix().strip("/")
+    matches: list[Path] = []
+    for candidate in root.rglob(raw.name):
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if not _is_relative_to(resolved, root):
+            continue
+        if expect_dir and not resolved.is_dir():
+            continue
+        if not expect_dir and not resolved.is_file():
+            continue
+        rel = resolved.relative_to(root).as_posix()
+        if rel == wanted or rel.endswith(f"/{wanted}"):
+            matches.append(resolved)
+
+    matches = sorted(set(matches))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        options = ", ".join(str(p.relative_to(root)) for p in matches[:10])
+        if len(matches) > 10:
+            options += f", ... and {len(matches) - 10} more"
+        raise ValueError(f"Multiple matches for relative ingest path '{path_str}': {options}. Use a more specific path.")
+
+    kind = "Directory" if expect_dir else "File"
+    raise FileNotFoundError(f"{kind} not found in project root: {path_str}")
 
 
 # ==================== Helper Functions ====================
@@ -554,6 +814,7 @@ async def handle_create_database(args: dict[str, Any]) -> dict[str, Any]:
     if not db_path:
         return {"content": [{"type": "text", "text": "Error: Database path is required"}], "isError": True}
     try:
+        _sanitize_path(db_path)
         parent = Path(db_path).parent
         if parent and not parent.exists():
             parent.mkdir(parents=True, exist_ok=True)
@@ -564,6 +825,8 @@ async def handle_create_database(args: dict[str, Any]) -> dict[str, Any]:
         else:
             db_client.execute(f".create {db_path}")
             return {"content": [{"type": "text", "text": f"Database created successfully at: {db_path}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Path error: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error creating database: {e}"}], "isError": True}
 
@@ -572,6 +835,10 @@ async def handle_open_database(args: dict[str, Any]) -> dict[str, Any]:
     db_path = args.get("path")
     if not db_path:
         return {"content": [{"type": "text", "text": "Error: Database path is required"}], "isError": True}
+    try:
+        _sanitize_path(db_path)
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"Path error: {e}"}], "isError": True}
     if not Path(db_path).exists():
         return {"content": [{"type": "text", "text": f"Error: Database file not found: {db_path}"}], "isError": True}
     try:
@@ -720,7 +987,21 @@ async def handle_search_text(args: dict[str, Any]) -> dict[str, Any]:
         vector_str = f"[{', '.join(str(x) for x in query_vector)}]"
         sql = f"SELECT * FROM {safe_table} WHERE embedding SIMILARITY {vector_str} LIMIT {k}"
         result = db_client.execute(sql)
-        return {"content": [{"type": "text", "text": f"Search Results for '{query}':\n\n{result}"}]}
+
+        # Estimate tokens
+        tokens_sent = k * MCP_TOKENS_PER_CHUNK
+        update_token_stats(chunks_returned=k, tokens_sent=tokens_sent)
+        stats = get_token_stats()
+
+        return {
+            "content": [{"type": "text", "text": f"Search Results for '{query}':\n\n{result}"}],
+            "stats": {
+                "chunks_returned": k,
+                "tokens_sent": tokens_sent,
+                "session_tokens_total": stats["session"]["tokens_sent"],
+                "session_savings_percent": stats["session"]["savings_percent"],
+            }
+        }
     except ValueError as e:
         return {"content": [{"type": "text", "text": f"Invalid input: {e}"}], "isError": True}
     except Exception as e:
@@ -732,8 +1013,11 @@ async def handle_execute_sql(args: dict[str, Any]) -> dict[str, Any]:
     if not sql:
         return {"content": [{"type": "text", "text": "Error: SQL query is required"}], "isError": True}
     try:
-        result = db_client.execute(sql)
+        validated_sql = _validate_sql_command(sql)
+        result = db_client.execute(validated_sql)
         return {"content": [{"type": "text", "text": f"Query Result:\n\n{result}"}]}
+    except ValueError as e:
+        return {"content": [{"type": "text", "text": f"SQL validation error: {e}"}], "isError": True}
     except Exception as e:
         return {"content": [{"type": "text", "text": f"Error executing SQL: {e}"}], "isError": True}
 
@@ -785,13 +1069,14 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     except ValueError as e:
         return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
 
-    if not Path(dir_path).exists():
-        return {"content": [{"type": "text", "text": f"Error: Directory not found: {dir_path}"}], "isError": True}
+    try:
+        base_path = _resolve_ingest_path(dir_path, expect_dir=True)
+    except (ValueError, FileNotFoundError, NotADirectoryError) as e:
+        return {"content": [{"type": "text", "text": f"Path error: {e}"}], "isError": True}
 
     ensure_import_table(safe_table, vector_dim)
 
     all_files = []
-    base_path = Path(dir_path).resolve()
     pattern_set = set(file_patterns) if file_patterns else set(SUPPORTED_EXTENSIONS)
 
     try:
@@ -808,7 +1093,7 @@ async def handle_import_text(args: dict[str, Any]) -> dict[str, Any]:
     total_files = len(all_files)
 
     if total_files == 0:
-        return {"content": [{"type": "text", "text": f"No supported files found in {dir_path} with patterns {file_patterns}"}]}
+        return {"content": [{"type": "text", "text": f"No supported files found in {base_path} with patterns {file_patterns}"}]}
 
     try:
         tmp_uuid_dir = _create_tmp_uuid_dir()
@@ -997,9 +1282,10 @@ async def handle_ingest_chunked(args: dict[str, Any]) -> dict[str, Any]:
     except ValueError as e:
         return {"content": [{"type": "text", "text": f"Invalid table name: {e}"}], "isError": True}
 
-    path = Path(file_path)
-    if not path.exists():
-        return {"content": [{"type": "text", "text": f"Error: File not found: {file_path}"}], "isError": True}
+    try:
+        path = _resolve_ingest_path(file_path, expect_dir=False)
+    except (ValueError, FileNotFoundError) as e:
+        return {"content": [{"type": "text", "text": f"Path error: {e}"}], "isError": True}
 
     fsize = path.stat().st_size
     if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
@@ -1014,7 +1300,7 @@ async def handle_ingest_chunked(args: dict[str, Any]) -> dict[str, Any]:
 
     try:
         tmp_uuid_dir = _create_tmp_uuid_dir()
-        md_path, ext = _convert_to_markdown(file_path, tmp_uuid_dir)
+        md_path, ext = _convert_to_markdown(str(path), tmp_uuid_dir)
         parsed = parse_md(str(md_path))
     except ValueError as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
@@ -1412,9 +1698,10 @@ async def handle_ingest_async(args: dict[str, Any]) -> dict[str, Any]:
     if not table or not file_path:
         return {"content": [{"type": "text", "text": "Error: table and file_path are required"}], "isError": True}
 
-    path = Path(file_path)
-    if not path.exists():
-        return {"content": [{"type": "text", "text": f"Error: File not found: {file_path}"}], "isError": True}
+    try:
+        path = _resolve_ingest_path(file_path, expect_dir=False)
+    except (ValueError, FileNotFoundError) as e:
+        return {"content": [{"type": "text", "text": f"Path error: {e}"}], "isError": True}
 
     fsize = path.stat().st_size
     if fsize > MAX_FILE_SIZE_MB * 1024 * 1024:
@@ -1424,7 +1711,7 @@ async def handle_ingest_async(args: dict[str, Any]) -> dict[str, Any]:
     if ext not in SUPPORTED_EXTENSIONS:
         return {"content": [{"type": "text", "text": f"Error: Unsupported file type '{ext}'. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"}], "isError": True}
 
-    job_id = _start_ingest_job(file_path, table, chunk_size, overlap, vector_dim)
+    job_id = _start_ingest_job(str(path), table, chunk_size, overlap, vector_dim)
     return {"content": [{"type": "text", "text": f"Job started: {job_id}. Poll with pardusdb_ingest_status with job_id='{job_id}'"}]}
 
 
@@ -1639,6 +1926,71 @@ async def handle_import_status(args: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
 
 
+async def handle_get_stats(args: dict[str, Any]) -> dict[str, Any]:
+    """Get token savings statistics."""
+    try:
+        stats = get_token_stats()
+        config = stats["config"]
+        session = stats["session"]
+        total = stats["total"]
+
+        response_text = f"""Token Savings Dashboard
+═══════════════════════════════════════════════════════
+
+CURRENT MODEL: {config['model']}
+Provider: {config['provider']}
+Context Window: {config['context_window']:,} tokens
+
+─────────────── SESSION ───────────────
+Queries: {session['queries']}
+Tokens sent: {session['tokens_sent']:,}
+Tokens if full doc: {session['tokens_if_full']:,}
+Savings: {session['savings']:,} tokens ({session['savings_percent']}%)
+Chunks returned: {session['chunks_returned']}
+
+─────────────── TOTAL ───────────────
+Total Queries: {total['queries']}
+Total Tokens sent: {total['tokens_sent']:,}
+Total Tokens if full: {total['tokens_if_full']:,}
+Total Savings: {total['savings']:,} tokens ({total['savings_percent']}%)
+Total Chunks: {total['chunks_returned']}
+"""
+        return {"content": [{"type": "text", "text": response_text}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error getting stats: {e}"}], "isError": True}
+
+
+async def handle_set_model(args: dict[str, Any]) -> dict[str, Any]:
+    """Set the current LLM model for accurate token tracking."""
+    model = args.get("model")
+    if not model:
+        return {"content": [{"type": "text", "text": "Error: model name is required"}], "isError": True}
+    try:
+        result = set_current_model(model)
+        return {"content": [{"type": "text", "text": f"Model updated: {result['model']}\nContext window: {result['context_window']:,} tokens\nProvider: {result['provider']}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error setting model: {e}"}], "isError": True}
+
+
+async def handle_reset_stats(args: dict[str, Any]) -> dict[str, Any]:
+    """Reset session statistics."""
+    try:
+        result = reset_session_stats()
+        return {"content": [{"type": "text", "text": f"Session stats reset successfully"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error resetting stats: {e}"}], "isError": True}
+
+
+async def handle_refresh_model_context(args: dict[str, Any]) -> dict[str, Any]:
+    """Refresh model context from litellm GitHub."""
+    try:
+        from model_context import refresh_model_context
+        result = refresh_model_context(verbose=True)
+        return {"content": [{"type": "text", "text": f"Model context refreshed. Total models: {len(result)}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error refreshing model context: {e}"}], "isError": True}
+
+
 # ==================== Tool Definitions ====================
 
 TOOLS = [
@@ -1776,7 +2128,7 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "dir_path": {"type": "string", "description": "Directory path to scan for documents"},
+                "dir_path": {"type": "string", "description": "Directory path to scan for documents. Relative paths are resolved inside the MCP project root and searched recursively if not found directly; only absolute paths may point outside the project root."},
                 "table": {"type": "string", "description": "Target table name (created if not exists)"},
                 "file_patterns": {
                     "type": "array",
@@ -1797,7 +2149,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "table": {"type": "string", "description": "Target table name"},
-                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS)"},
+                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS). Relative paths are resolved inside the MCP project root and searched recursively if not found directly; only absolute paths may point outside the project root."},
                 "chunk_size": {"type": "integer", "description": "Target characters per chunk (default: 500)"},
                 "overlap": {"type": "integer", "description": "Character overlap between chunks for continuity (default: 50)"},
                 "vector_dim": {"type": "integer", "description": f"Embedding dimension (default: {DEFAULT_VECTOR_DIM})"},
@@ -1832,7 +2184,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "table": {"type": "string", "description": "Target table name"},
-                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS)"},
+                "file_path": {"type": "string", "description": "Path to document file (PDF, DOCX, TXT, MD, CSV, JSON, JSONL, XLSX, XLS). Relative paths are resolved inside the MCP project root and searched recursively if not found directly; only absolute paths may point outside the project root."},
                 "chunk_size": {"type": "integer", "description": "Target characters per chunk (default: 500)"},
                 "overlap": {"type": "integer", "description": "Character overlap between chunks for continuity (default: 50)"},
                 "vector_dim": {"type": "integer", "description": f"Embedding dimension (default: {DEFAULT_VECTOR_DIM})"},
@@ -1886,12 +2238,47 @@ TOOLS = [
             "required": ["action"],
         },
     ),
+    Tool(
+        name="pardusdb_get_stats",
+        description="Get token savings statistics. Shows session and total stats including tokens sent, tokens if full doc, and savings percentage.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="pardusdb_set_model",
+        description="Set the current LLM model for accurate token tracking. Updates the context window and provider info.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model name (e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022')"},
+            },
+            "required": ["model"],
+        },
+    ),
+    Tool(
+        name="pardusdb_reset_stats",
+        description="Reset session statistics. Keeps total accumulated stats but starts a new session counter.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="pardusdb_refresh_model_context",
+        description="Fetch latest model context from litellm GitHub repository. Updates the local cache of model context windows (stored in ~/.pardus/mcp_model_context.json). Use this when you need the most up-to-date model information or when set_model fails to find a model.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
 ]
 
 
 # ==================== Server Setup ====================
 
-server = Server("pardusdb-mcp", "0.4.20")
+server = Server("pardusdb-mcp", "0.4.30")
 
 
 @server.list_tools()
@@ -1941,6 +2328,14 @@ async def call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
         result = await handle_ingest_async(args)
     elif name == "pardusdb_ingest_status":
         result = await handle_ingest_status(args)
+    elif name == "pardusdb_get_stats":
+        result = await handle_get_stats(args)
+    elif name == "pardusdb_set_model":
+        result = await handle_set_model(args)
+    elif name == "pardusdb_reset_stats":
+        result = await handle_reset_stats(args)
+    elif name == "pardusdb_refresh_model_context":
+        result = await handle_refresh_model_context(args)
     else:
         result = {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 

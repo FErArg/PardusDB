@@ -217,7 +217,7 @@ Herramientas disponibles para agentes IA (OpenCode, Claude Desktop, etc.):
   "mcp": {
     "pardusdb": {
       "type": "local",
-      "command": ["python3", "/home/${USER}/.pardus/mcp/server.py"],
+      "command": ["/home/${USER}/.pardus/mcp/run_pardusdb_mcp.sh"],
       "enabled": true
     }
   }
